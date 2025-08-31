@@ -1,10 +1,10 @@
 # AutoKit Audio Processing: Comprehensive Technical Analysis
-## Engineer-Level Documentation for CPC200-CCPA Audio Implementation
+## Best Attempt (we tried.) Documentation for CPC200-CCPA Audio Implementation
 ---
 
 ## Executive Summary
 
-This document provides a complete technical analysis of AutoKit's audio processing implementation for CPC200-CCPA communication. Through reverse engineering, binary analysis, and protocol examination, this analysis reveals a **sophisticated WebRTC-based audio engine** with proprietary automotive optimizations that far exceeds basic PCM processing requirements. Partial deobfuscation of main Autokit apk and firmware boxhelper apk.
+This document provides a complete technical analysis of AutoKit's audio processing implementation for CPC200-CCPA communication. Through reverse engineering (ish), binary analysis, and protocol examination, this analysis reveals a **sophisticated WebRTC-based audio engine** with proprietary automotive optimizations that far exceeds basic PCM processing requirements. Partial deobfuscation of main Autokit apk and firmware boxhelper apk.
 
 **Key Finding**: AutoKit implements a **professional-grade audio processing system** using industry-standard WebRTC AudioProcessing technology, wrapped in a proprietary XTour API layer optimized for automotive environments.
 
