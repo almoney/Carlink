@@ -7,8 +7,8 @@ ext {
     myApplicationName = "Carlink"
     
     // App Version Configuration
-    myVersionCode = 2
-    myVersionName = "1.5.0"
+    myVersionCode = 3
+    myVersionName = "1.6.0"
     
     // Android SDK Configuration - Target Android API levels
     myCompileSdk = 35

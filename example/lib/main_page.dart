@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import 'logger.dart';
 import 'settings_page.dart';
+import 'settings/status_monitor.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -42,6 +43,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    
+    // Stop adapter status monitoring
+    adapterStatusMonitor.stopMonitoring();
+    
     super.dispose();
   }
 
@@ -164,9 +169,17 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         Logger.log("[UI] Host UI button pressed - opening settings");
         _openSettings(context);
       },
+      onMessageIntercepted: (message) {
+        // Forward all CPC200-CCPA messages to status monitor for real-time processing
+        adapterStatusMonitor.processMessage(message);
+      },
     );
 
     Logger.log("[DONGLE] Starting Carlink connection...");
+    
+    // Start monitoring adapter status with direct message interception
+    adapterStatusMonitor.startMonitoring(_carlink);
+    
     _carlink?.start();
   }
 

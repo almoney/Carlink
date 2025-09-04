@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
+
 import '../../carlink_platform_interface.dart';
 import '../../usb.dart';
 
@@ -82,26 +84,94 @@ class UsbDeviceWrapper {
   }
 
   Future<Uint8List> read(int maxLength,
-      {int timeout = 10000, bool isVideoData = false}) {
-    if (!isOpened) throw "UsbDevice not opened";
-    if (_endpointIn == null) throw "UsbDevice endpointIn is null";
+      {int timeout = 10000, bool isVideoData = false, int retryCount = 3}) async {
+    if (!isOpened) throw StateError("UsbDevice not opened");
+    if (_endpointIn == null) throw StateError("UsbDevice endpointIn is null");
 
-    return CarlinkPlatform.instance.bulkTransferIn(
-      _endpointIn!,
-      maxLength,
-      timeout,
-      isVideoData: isVideoData,
-    );
+    // Validate input parameters
+    if (maxLength <= 0) throw ArgumentError("maxLength must be positive");
+    if (timeout <= 0) throw ArgumentError("timeout must be positive");
+    if (retryCount < 0) throw ArgumentError("retryCount must be non-negative");
+
+    Exception? lastException;
+    
+    for (int attempt = 0; attempt <= retryCount; attempt++) {
+      try {
+        return await CarlinkPlatform.instance.bulkTransferIn(
+          _endpointIn!,
+          maxLength,
+          _calculateTimeout(timeout, attempt),
+          isVideoData: isVideoData,
+        );
+      } on PlatformException catch (e) {
+        lastException = e;
+        
+        // Check for unrecoverable errors
+        if (e.code == "IllegalState" && e.message?.contains("null") == true) {
+          throw StateError("USB device connection lost: ${e.message}");
+        }
+        
+        // If this is the last attempt, throw the exception
+        if (attempt == retryCount) break;
+        
+        // Exponential backoff for retries
+        await Future.delayed(Duration(milliseconds: 100 * (1 << attempt)));
+      } catch (e) {
+        lastException = e as Exception;
+        if (attempt == retryCount) break;
+        await Future.delayed(Duration(milliseconds: 100 * (1 << attempt)));
+      }
+    }
+    
+    throw lastException ?? Exception("Unknown USB read error");
   }
 
-  Future<int> write(Uint8List data, {int timeout = 10000}) async {
-    if (!isOpened) throw "UsbDevice not opened";
-    if (_endpointOut == null) throw "UsbDevice endpointOut is null";
+  Future<int> write(Uint8List data, {int timeout = 10000, int retryCount = 3}) async {
+    if (!isOpened) throw StateError("UsbDevice not opened");
+    if (_endpointOut == null) throw StateError("UsbDevice endpointOut is null");
+    
+    // Validate input parameters
+    if (data.isEmpty) throw ArgumentError("data cannot be empty");
+    if (timeout <= 0) throw ArgumentError("timeout must be positive");
+    if (retryCount < 0) throw ArgumentError("retryCount must be non-negative");
 
-    return CarlinkPlatform.instance.bulkTransferOut(
-      _endpointOut!,
-      data,
-      timeout,
-    );
+    Exception? lastException;
+    
+    for (int attempt = 0; attempt <= retryCount; attempt++) {
+      try {
+        return await CarlinkPlatform.instance.bulkTransferOut(
+          _endpointOut!,
+          data,
+          _calculateTimeout(timeout, attempt),
+        );
+      } on PlatformException catch (e) {
+        lastException = e;
+        
+        // Check for unrecoverable errors
+        if (e.code == "IllegalState" && e.message?.contains("null") == true) {
+          throw StateError("USB device connection lost: ${e.message}");
+        }
+        if (e.code == "USBWriteError" && e.message?.contains("actualLength=-1") == true) {
+          throw StateError("USB device disconnected during write");
+        }
+        
+        // If this is the last attempt, throw the exception
+        if (attempt == retryCount) break;
+        
+        // Exponential backoff for retries
+        await Future.delayed(Duration(milliseconds: 100 * (1 << attempt)));
+      } catch (e) {
+        lastException = e as Exception;
+        if (attempt == retryCount) break;
+        await Future.delayed(Duration(milliseconds: 100 * (1 << attempt)));
+      }
+    }
+    
+    throw lastException ?? Exception("Unknown USB write error");
+  }
+  
+  // Calculate timeout with exponential backoff
+  int _calculateTimeout(int baseTimeout, int attempt) {
+    return baseTimeout + (baseTimeout * attempt ~/ 2);
   }
 }

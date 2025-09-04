@@ -51,6 +51,7 @@ class Carlink {
   late final Function()? _hostUIHandler;
   late final Function(CarlinkState)? _stateHandler;
   late final Function(CarlinkMediaInfo mediaInfo)? _metadataHandler;
+  late final Function(Message)? _messageInterceptor;
 
   Carlink({
     required DongleConfig config,
@@ -59,6 +60,7 @@ class Carlink {
     Function(CarlinkMediaInfo)? onMediaInfoChanged,
     Function(String)? onLogMessage,
     Function()? onHostUIPressed,
+    Function(Message)? onMessageIntercepted,
   }) {
     _config = config;
     _textureHandler = onTextureChanged;
@@ -66,6 +68,7 @@ class Carlink {
     _stateHandler = onStateChanged;
     _logHandler = onLogMessage;
     _hostUIHandler = onHostUIPressed;
+    _messageInterceptor = onMessageIntercepted;
 
     CarlinkPlatform.setLogHandler(_logHandler);
 
@@ -197,6 +200,9 @@ class Carlink {
   }
 
   _handleDongleMessage(Message message) async {
+    // Forward all messages to the interceptor for status monitoring
+    _messageInterceptor?.call(message);
+    
     if (message is Plugged) {
       _clearPairTimeout();
       _clearFrameInterval();
@@ -266,8 +272,73 @@ class Carlink {
     _clearPairTimeout();
     _clearFrameInterval();
 
-    // restart
+    // Enhanced error handling based on Flutter platform channel best practices
+    try {
+      // Attempt graceful recovery first
+      if (await _attemptGracefulRecovery(error)) {
+        return;
+      }
+    } catch (e) {
+      print('Graceful recovery failed: $e');
+    }
+
+    // Fall back to existing restart logic (preserves heartbeat handling)
     await restart();
+  }
+
+  /// Attempts graceful recovery from USB errors without full restart
+  /// Based on Android USB host documentation best practices
+  Future<bool> _attemptGracefulRecovery(String? error) async {
+    if (error == null) return false;
+    
+    // Classify error type for appropriate recovery action
+    if (error.contains("device") && error.contains("null")) {
+      // Device disconnected - wait for reconnection
+      await Future.delayed(Duration(seconds: 3));
+      return await _attemptDeviceReconnection();
+    }
+    
+    if (error.contains("timeout") || error.contains("actualLength=-1")) {
+      // Transfer timeout - retry connection
+      return await _retryConnection();
+    }
+    
+    if (error.contains("permission")) {
+      // Permission issue - cannot recover gracefully
+      return false;
+    }
+    
+    return false;
+  }
+
+  /// Attempts to reestablish device connection
+  Future<bool> _attemptDeviceReconnection() async {
+    try {
+      // Use existing start() method which handles device discovery
+      await start();
+      
+      // Check if connection was successful
+      return state == CarlinkState.deviceConnected || state == CarlinkState.streaming;
+    } catch (e) {
+      print('Device reconnection failed: $e');
+    }
+    return false;
+  }
+
+  /// Attempts to retry the current connection
+  Future<bool> _retryConnection() async {
+    try {
+      // Use existing restart logic but without full delay
+      await stop();
+      await Future.delayed(Duration(milliseconds: 1000)); // Shorter delay than full restart
+      await start();
+      
+      // Check if connection was reestablished
+      return state == CarlinkState.deviceConnected || state == CarlinkState.streaming;
+    } catch (e) {
+      print('Connection retry failed: $e');
+    }
+    return false;
   }
 
   _clearPairTimeout() {

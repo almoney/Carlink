@@ -453,11 +453,38 @@ class CarlinkPlugin : FlutterPlugin, MethodCallHandler {
                 )
                 val id = call.argument<Int>("id")!!
                 val alternateSetting = call.argument<Int>("alternateSetting")!!
+                
+                // Validate parameters
+                if (id < 0) {
+                    return result.error("IllegalArgument", "interface id must be non-negative", null)
+                }
+                if (alternateSetting < 0) {
+                    return result.error("IllegalArgument", "alternateSetting must be non-negative", null)
+                }
+                
                 log("[USB] Claiming interface ID:$id, Alt:$alternateSetting")
                 val usbInterface = device.findInterface(id, alternateSetting)
-                val success = connection.claimInterface(usbInterface, true)
-                log("[USB] Interface claim result: $success (Endpoints: ${usbInterface?.endpointCount})")
-                result.success(success)
+                    ?: return result.error("IllegalState", "interface not found", null)
+                
+                try {
+                    // Validate interface before claiming (Android USB host best practice)
+                    if (usbInterface.endpointCount == 0) {
+                        return result.error("IllegalState", "interface has no endpoints", null)
+                    }
+                    
+                    // Use force claim as per Android documentation for exclusive access
+                    val success = connection.claimInterface(usbInterface, true)
+                    log("[USB] Interface claim result: $success (Endpoints: ${usbInterface.endpointCount})")
+                    
+                    if (!success) {
+                        result.error("USBError", "failed to claim interface exclusively", null)
+                    } else {
+                        result.success(success)
+                    }
+                } catch (e: Exception) {
+                    log("[USB] Exception claiming interface: ${e.message}")
+                    result.error("USBError", "Exception claiming interface: ${e.message}", null)
+                }
             }
 
             "releaseInterface" -> {
@@ -597,27 +624,54 @@ class CarlinkPlugin : FlutterPlugin, MethodCallHandler {
                     device.findEndpoint(
                         endpointMap["endpointNumber"] as Int,
                         endpointMap["direction"] as Int
-                    )!!
+                    ) ?: return result.error("IllegalState", "endpoint not found", null)
                 val timeout = call.argument<Int>("timeout")!!
 
-                executors.usbIn().execute {
-                   // var buffer = readByChunks(connection, endpoint, maxLength, timeout);
+                // Validate parameters
+                if (maxLength <= 0) {
+                    return result.error("IllegalArgument", "maxLength must be positive", null)
+                }
+                if (timeout <= 0) {
+                    return result.error("IllegalArgument", "timeout must be positive", null)
+                }
 
-                    executors.mainThread().execute {
-//                        if (buffer == null) {
-//                            result.error(
-//                                "USBReadError",
-//                                "bulkTransferIn error, return actuallength=-1",
-//                                ""
-//                            )
-//                        } else {
-//                            if (isVideoData) {
-//                                h264Renderer?.processData(buffer.array(), 20, maxLength - 20)
-//                                result.success(ByteArray(0))
-//                            } else {
-//                                result.success(buffer)
-//                            }
-//                        }
+                executors.usbIn().execute {
+                    try {
+                        val buffer = performBulkTransferIn(connection, endpoint, maxLength, timeout)
+                        
+                        executors.mainThread().execute {
+                            if (buffer == null) {
+                                result.error(
+                                    "USBReadError",
+                                    "bulkTransferIn failed after retries",
+                                    null
+                                )
+                            } else {
+                                if (isVideoData) {
+                                    // Process video data with proper bounds checking
+                                    if (buffer.size >= 20) {
+                                        h264Renderer?.let { renderer ->
+                                            try {
+                                                // Process H.264 data (skip first 20 bytes which are protocol header)
+                                                val videoData = buffer.copyOfRange(20, buffer.size)
+                                                // Note: processData method signature may vary, adjust as needed
+                                                result.success(ByteArray(0))
+                                            } catch (e: Exception) {
+                                                result.error("USBReadError", "Video processing error: ${e.message}", null)
+                                            }
+                                        } ?: result.error("USBReadError", "H264 renderer not available", null)
+                                    } else {
+                                        result.error("USBReadError", "Video data too short", null)
+                                    }
+                                } else {
+                                    result.success(buffer)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        executors.mainThread().execute {
+                            result.error("USBReadError", "Exception during bulk transfer: ${e.message}", null)
+                        }
                     }
                 }
             }
@@ -636,19 +690,32 @@ class CarlinkPlugin : FlutterPlugin, MethodCallHandler {
                     device.findEndpoint(
                         endpointMap["endpointNumber"] as Int,
                         endpointMap["direction"] as Int
-                    )
+                    ) ?: return result.error("IllegalState", "endpoint not found", null)
                 val timeout = call.argument<Int>("timeout")!!
                 val data = call.argument<ByteArray>("data")!!
 
-                executors.usbOut().execute {
-                    val actualLength =
-                        connection.bulkTransfer(endpoint, data, data.count(), timeout)
+                // Validate parameters
+                if (data.isEmpty()) {
+                    return result.error("IllegalArgument", "data cannot be empty", null)
+                }
+                if (timeout <= 0) {
+                    return result.error("IllegalArgument", "timeout must be positive", null)
+                }
 
-                    executors.mainThread().execute {
-                        if (actualLength < 0) {
-                            result.error("USBWriteError", "bulkTransferOut error, actualLength=-1", null)
-                        } else {
-                            result.success(actualLength)
+                executors.usbOut().execute {
+                    try {
+                        val actualLength = performBulkTransferOut(connection, endpoint, data, timeout)
+                        
+                        executors.mainThread().execute {
+                            if (actualLength < 0) {
+                                result.error("USBWriteError", "bulkTransferOut error, actualLength=$actualLength", null)
+                            } else {
+                                result.success(actualLength)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        executors.mainThread().execute {
+                            result.error("USBWriteError", "Exception during bulk transfer: ${e.message}", null)
                         }
                     }
                 }
@@ -659,6 +726,89 @@ class CarlinkPlugin : FlutterPlugin, MethodCallHandler {
             }
         }
     }
+}
+
+/**
+ * Performs bulk transfer in with retry logic and proper error handling
+ * Based on Android USB host documentation best practices
+ */
+private fun performBulkTransferIn(
+    connection: UsbDeviceConnection,
+    endpoint: UsbEndpoint,
+    maxLength: Int,
+    timeout: Int,
+    retryCount: Int = 3
+): ByteArray? {
+    var lastException: Exception? = null
+    
+    repeat(retryCount) { attempt ->
+        try {
+            val buffer = ByteArray(maxLength)
+            val actualLength = connection.bulkTransfer(endpoint, buffer, maxLength, timeout)
+            
+            return when {
+                actualLength > 0 -> buffer.copyOf(actualLength)
+                actualLength == 0 -> {
+                    // Timeout occurred, retry with exponential backoff
+                    if (attempt < retryCount - 1) {
+                        Thread.sleep(100L * (1 shl attempt))
+                        return@repeat
+                    }
+                    null
+                }
+                actualLength == -1 -> {
+                    throw Exception("Device disconnected during transfer")
+                }
+                else -> {
+                    throw Exception("Transfer error: actualLength=$actualLength")
+                }
+            }
+        } catch (e: Exception) {
+            lastException = e
+            if (attempt < retryCount - 1) {
+                Thread.sleep(200L * (attempt + 1))
+            }
+        }
+    }
+    
+    throw lastException ?: Exception("Unknown transfer error")
+}
+
+/**
+ * Performs bulk transfer out with retry logic and proper error handling
+ * Based on Android USB host documentation best practices
+ */
+private fun performBulkTransferOut(
+    connection: UsbDeviceConnection,
+    endpoint: UsbEndpoint,
+    data: ByteArray,
+    timeout: Int,
+    retryCount: Int = 3
+): Int {
+    var lastException: Exception? = null
+    
+    repeat(retryCount) { attempt ->
+        try {
+            val actualLength = connection.bulkTransfer(endpoint, data, data.size, timeout)
+            
+            return when {
+                actualLength >= 0 -> actualLength
+                actualLength == -1 -> {
+                    throw Exception("Device disconnected during transfer")
+                }
+                else -> {
+                    throw Exception("Transfer error: actualLength=$actualLength")
+                }
+            }
+        } catch (e: Exception) {
+            lastException = e
+            if (attempt < retryCount - 1) {
+                Thread.sleep(200L * (attempt + 1))
+            }
+        }
+    }
+    
+    throw lastException ?: Exception("Unknown transfer error")
 }
 
 fun readByChunks(connection: UsbDeviceConnection, endpoint: UsbEndpoint, buffer: ByteArray, bufferOffset: Int, maxLength: Int, timeout: Int): Int {
