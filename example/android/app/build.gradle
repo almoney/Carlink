@@ -125,7 +125,7 @@ android {
             minifyEnabled false
             shrinkResources false
             // Use debug signing for now
-            signingConfig signingConfigs.debug
+            // signingConfig signingConfigs.debug
         }
     }
 }
