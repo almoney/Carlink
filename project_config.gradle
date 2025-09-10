@@ -3,12 +3,12 @@ ext {
     // Based on 2025 Android development standards and naming conventions
     
     // Application Configuration - For example/demo app
-    myApplicationId = "com.test.carlink"
-    myApplicationName = "Carlink"
+    myApplicationId = "com.werksmangm.cpaaplayer"
+    myApplicationName = "OpenSourceEV CPlayer"
     
     // App Version Configuration
-    myVersionCode = 3
-    myVersionName = "1.6.0"
+    myVersionCode = 14
+    myVersionName = "1.14.0"
     
     // Android SDK Configuration - Target Android API levels
     myCompileSdk = 35
