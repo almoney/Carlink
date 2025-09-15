@@ -131,6 +131,7 @@ enum FileAddress {
   ICON_180('/etc/icon_180x180.png'),
   ICON_250('/etc/icon_256x256.png'),
   ANDROID_WORK_MODE('/etc/android_work_mode'),
+  UDISK_PASSTHROUGH_MODE('/tmp/UDiskPassThroughMode'), // This hopefully corrects the USB Device Not Supported error
 
   Unknown("");
 
