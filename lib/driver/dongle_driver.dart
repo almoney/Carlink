@@ -57,6 +57,7 @@ class Dongle {
             ? CommandMapping.audioTransferOn
             : CommandMapping.audioTransferOff,
       ),
+      SendBoolean(true, FileAddress.UDISK_PASSTHROUGH_MODE), // This hopefully corrects the USB Device Not Supported error by writing the file to keep the adapter in uDiskMode
       if (config.androidWorkMode == true)
         SendBoolean(config.androidWorkMode!, FileAddress.ANDROID_WORK_MODE),
     ];
