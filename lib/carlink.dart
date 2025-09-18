@@ -146,7 +146,7 @@ class Carlink {
     _log('found & opening');
 
     _dongleDriver =
-        Dongle(device, _handleDongleMessage, _handleDongleError, _log);
+        Dongle(device, _handleDongleMessage, _handleDongleError, _log, _config,);
 
     await device.open();
     await _dongleDriver?.start();
