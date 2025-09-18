@@ -8,6 +8,7 @@ import 'usb/usb_device_wrapper.dart';
 
 class Dongle {
   final UsbDeviceWrapper _usbDevice;
+  final DongleConfig _config;       
 
   Function(Message)? _messageHandler;
   Function({String? error})? _errorHandler;
@@ -20,7 +21,7 @@ class Dongle {
   late final int _writeTimeout;
 
   Dongle(this._usbDevice, this._messageHandler, this._errorHandler,
-      this._logHandler,
+      this._logHandler, this._config, 
       {int readTimeout = 30000, writeTimeout = 1000}) {
     _readTimeout = readTimeout;
     _writeTimeout = writeTimeout;
@@ -35,7 +36,7 @@ class Dongle {
       return;
     }
 
-    final config = DEFAULT_CONFIG;
+    final config = _config;
 
     final initMessages = [
       SendNumber(config.dpi, FileAddress.DPI),
@@ -50,16 +51,9 @@ class Dongle {
       SendCommand(config.wifiType == '5ghz'
           ? CommandMapping.wifi5g
           : CommandMapping.wifi24g),
-      SendCommand(
-          config.micType == 'box' ? CommandMapping.boxMic : CommandMapping.mic),
-      SendCommand(
-        config.audioTransferMode
-            ? CommandMapping.audioTransferOn
-            : CommandMapping.audioTransferOff,
-      ),
-      SendBoolean(true, FileAddress.UDISK_PASSTHROUGH_MODE), // This hopefully corrects the USB Device Not Supported error by writing the file to keep the adapter in uDiskMode
-      if (config.androidWorkMode == true)
-        SendBoolean(config.androidWorkMode!, FileAddress.ANDROID_WORK_MODE),
+      SendCommand(config.micType == 'box' ? CommandMapping.boxMic : CommandMapping.mic),
+      SendCommand(config.audioTransferMode ? CommandMapping.audioTransferOn : CommandMapping.audioTransferOff,),
+      if (config.androidWorkMode == true) SendBoolean(config.androidWorkMode!, FileAddress.ANDROID_WORK_MODE),
     ];
 
     for (final message in initMessages) {
