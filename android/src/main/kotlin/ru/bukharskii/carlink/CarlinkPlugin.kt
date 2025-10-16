@@ -180,32 +180,38 @@ class CarlinkPlugin : FlutterPlugin, MethodCallHandler {
         when (call.method) {
 
             "getDisplayMetrics" -> {
-                val context = applicationContext ?: return result.error(
+                val ctx = applicationContext ?: return result.error(
                     "IllegalState",
                     "applicationContext null",
                     null
                 )
-                
-                val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                val display = windowManager.defaultDisplay
-                val metrics = DisplayMetrics()
-                
-                // Get real display metrics (including status bar, navigation bar)
-                display.getRealMetrics(metrics)
-                
+            
+                // Size: modern WindowMetrics (includes system bars; analogous to getRealMetrics()).
+                val wm = ctx.getSystemService(WindowManager::class.java)
+                val bounds = wm.currentWindowMetrics.bounds
+            
+                // Density: authoritative from Resources on API 31+.
+                val res = ctx.resources.displayMetrics
+            
+                // Refresh rate: prefer Display.mode.refreshRate.
+                val displayManager = ctx.getSystemService(DisplayManager::class.java)
+                val activeDisplay = ctx.display ?: displayManager.getDisplay(Display.DEFAULT_DISPLAY)
+                val refreshHz = (activeDisplay?.mode?.refreshRate ?: 60f).toDouble()
+            
                 val displayInfo = mapOf(
-                    "widthPixels" to metrics.widthPixels,
-                    "heightPixels" to metrics.heightPixels,
-                    "densityDpi" to metrics.densityDpi,
-                    "density" to metrics.density,
-                    "scaledDensity" to metrics.scaledDensity,
-                    "xdpi" to metrics.xdpi,
-                    "ydpi" to metrics.ydpi,
-                    "refreshRate" to display.refreshRate
+                    "widthPixels" to bounds.width(),
+                    "heightPixels" to bounds.height(),
+                    "densityDpi" to res.densityDpi,
+                    "density" to res.density,
+                    "scaledDensity" to res.scaledDensity,
+                    "xdpi" to res.xdpi,
+                    "ydpi" to res.ydpi,
+                    "refreshRate" to refreshHz
                 )
-                
-                log("[DISPLAY] Hardware resolution: ${metrics.widthPixels}x${metrics.heightPixels}, DPI: ${metrics.densityDpi}, Density: ${metrics.density}, Refresh: ${display.refreshRate}Hz")
-                
+            
+                log("[DISPLAY] Hardware resolution: ${bounds.width()}x${bounds.height()}, " +
+                    "DPI: ${res.densityDpi}, Density: ${res.density}, Refresh: ${refreshHz}Hz")
+            
                 result.success(displayInfo)
             }
 
