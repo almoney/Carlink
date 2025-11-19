@@ -3,84 +3,94 @@ import 'package:flutter/foundation.dart';
 import 'package:carlink/carlink.dart';
 import 'package:carlink/driver/readable.dart';
 import 'settings_enums.dart';
-import '../logger.dart';
+import 'package:carlink/log.dart';
 
 /// Status monitor for CPC200-CCPA adapter messages.
 /// Listens for specific status messages and maintains current adapter state.
-/// 
+///
 /// This class follows the observer pattern and provides real-time updates
 /// about the adapter's operational status, phone connections, firmware info, etc.
 class AdapterStatusMonitor extends ChangeNotifier {
   Timer? _pollingTimer;
-  StreamSubscription? _messageSubscription;
-  
+
   /// Current adapter status information
   AdapterStatusInfo _currentStatus = AdapterStatusInfo(
+    phoneConnection: PhoneConnectionInfo(
+      lastUpdate: DateTime.now(),
+    ),
     lastUpdated: DateTime.now(),
   );
-  
+
   /// Carlink instance for communication
   Carlink? _carlink;
-  
+
   /// Whether the monitor is currently active
   bool _isMonitoring = false;
-  
+
   /// Timestamp of last audio data received
   DateTime? _lastAudioDataTime;
-  
+
+  /// Video frame tracking for FPS calculation
+  final List<DateTime> _videoFrameTimes = [];
+  int _totalVideoFrames = 0;
+
   /// Duration to consider audio data as "recent" (in seconds)
   static const int _audioDataTimeoutSeconds = 5;
-  
+
+  /// Number of recent frames to track for FPS calculation
+  static const int _frameTimeWindow = 30;
+
   /// Polling interval for status updates (in milliseconds)
   static const int _pollingIntervalMs = 500;
-  
+
   /// Current status information
   AdapterStatusInfo get currentStatus => _currentStatus;
-  
+
   /// Whether monitoring is active
   bool get isMonitoring => _isMonitoring;
-  
+
   /// Starts monitoring the specified Carlink instance
   void startMonitoring(Carlink? carlink) {
     if (_isMonitoring) {
       stopMonitoring();
     }
-    
+
     _carlink = carlink;
     if (_carlink == null) {
       _updateStatus(_currentStatus.copyWith(
         phase: AdapterPhase.unknown,
-        phoneStatus: PhoneConnectionStatus.unknown,
+        phoneConnection: PhoneConnectionInfo(
+          status: PhoneConnectionStatus.unknown,
+          lastUpdate: DateTime.now(),
+        ),
       ));
       return;
     }
-    
+
     _isMonitoring = true;
     _startPolling();
-    
-    Logger.log('[STATUS_MONITOR] Started monitoring adapter status');
+
+    log('[STATUS_MONITOR] Started monitoring adapter status');
   }
-  
+
   /// Sets up message interception for direct protocol message processing
   void setupMessageInterception(Carlink? carlink) {
     if (carlink == null) return;
-    
+
     // Note: This would require modifying the Carlink constructor call
     // to pass our processMessage method as the onMessageIntercepted callback
-    Logger.log('[STATUS_MONITOR] Message interception ready for setup');
+    log('[STATUS_MONITOR] Message interception ready for setup');
   }
-  
+
   /// Stops monitoring and cleans up resources
   void stopMonitoring() {
     _pollingTimer?.cancel();
     _pollingTimer = null;
-    _messageSubscription?.cancel();
-    _messageSubscription = null;
     _isMonitoring = false;
-    
-    Logger.log('[STATUS_MONITOR] Stopped monitoring adapter status');
+
+    log('[STATUS_MONITOR] Stopped monitoring adapter status');
   }
-  
+
   /// Starts the polling timer to check for status changes
   void _startPolling() {
     _pollingTimer = Timer.periodic(
@@ -88,45 +98,45 @@ class AdapterStatusMonitor extends ChangeNotifier {
       _pollStatus,
     );
   }
-  
+
   /// Polls the current status from the Carlink instance
   void _pollStatus(Timer timer) {
     if (_carlink == null || !_isMonitoring) {
       return;
     }
-    
+
     try {
       // Update basic connection state
       final newStatus = _currentStatus.copyWith(
         lastUpdated: DateTime.now(),
       );
-      
+
       // Map Carlink state to our adapter phase
       final carlinkState = _carlink!.state;
       final adapterPhase = _mapCarlinkStateToPhase(carlinkState);
-      
+
       if (adapterPhase != _currentStatus.phase) {
         final updatedStatus = newStatus.copyWith(phase: adapterPhase);
         _updateStatus(updatedStatus);
-        Logger.log('[STATUS_MONITOR] Phase changed to: ${adapterPhase.displayName}');
+        log('[STATUS_MONITOR] Phase changed to: ${adapterPhase.displayName}');
       }
-      
+
       // Check for recent audio data activity
       final hasRecentAudio = _hasRecentAudioData();
       if (hasRecentAudio != _currentStatus.hasRecentAudioData) {
-        final updatedStatus = newStatus.copyWith(hasRecentAudioData: hasRecentAudio);
+        final updatedStatus =
+            newStatus.copyWith(hasRecentAudioData: hasRecentAudio);
         _updateStatus(updatedStatus);
       }
-      
+
       // Note: Additional status messages (0x02, 0xCC, 0x14, 0x19) would be
       // processed here when the Carlink class provides access to them.
       // For now, we derive what we can from the available CarlinkState.
-      
     } catch (e) {
-      Logger.log('[STATUS_MONITOR] Error polling status: $e');
+      logError('[STATUS_MONITOR] Error polling status: $e');
     }
   }
-  
+
   /// Maps CarlinkState to AdapterPhase
   AdapterPhase _mapCarlinkStateToPhase(CarlinkState carlinkState) {
     switch (carlinkState) {
@@ -140,17 +150,87 @@ class AdapterStatusMonitor extends ChangeNotifier {
         return AdapterPhase.active;
     }
   }
-  
+
   /// Checks if audio data was received recently
   bool _hasRecentAudioData() {
     if (_lastAudioDataTime == null) return false;
-    
+
     final now = DateTime.now();
     final timeDifference = now.difference(_lastAudioDataTime!);
     return timeDifference.inSeconds <= _audioDataTimeoutSeconds;
   }
-  
-  
+
+  /// Calculates current FPS from recent frame times
+  double? _calculateCurrentFPS() {
+    if (_videoFrameTimes.length < 2) return null;
+
+    final now = DateTime.now();
+    // Remove frames older than 2 seconds for more accurate real-time FPS
+    _videoFrameTimes
+        .removeWhere((time) => now.difference(time).inMilliseconds > 2000);
+
+    if (_videoFrameTimes.length < 2) return null;
+
+    // Calculate FPS from the time span of recent frames
+    final timeSpan = _videoFrameTimes.last.difference(_videoFrameTimes.first);
+    if (timeSpan.inMilliseconds < 100)
+      return null; // Avoid division by very small numbers
+
+    final fps =
+        (_videoFrameTimes.length - 1) * 1000.0 / timeSpan.inMilliseconds;
+    return fps;
+  }
+
+  /// Updates video stream information based on VideoData message
+  void _updateVideoStreamInfo(int width, int height) {
+    final now = DateTime.now();
+    _totalVideoFrames++;
+
+    // Add current timestamp for FPS calculation
+    _videoFrameTimes.add(now);
+
+    // Keep only recent frames for FPS calculation
+    if (_videoFrameTimes.length > _frameTimeWindow) {
+      _videoFrameTimes.removeAt(0);
+    }
+
+    // Calculate current FPS for actual streaming rate
+    final actualFps = _calculateCurrentFPS();
+
+    // Preserve configured resolution but track actual received resolution separately
+    final currentVideo = _currentStatus.videoStream;
+    final updatedVideo = currentVideo?.copyWith(
+          // Keep configured resolution and FPS unless not yet initialized
+          width: currentVideo.width ?? width,
+          height: currentVideo.height ?? height,
+          // Store the actual received resolution from VideoData messages
+          receivedWidth: width,
+          receivedHeight: height,
+          frameRate: currentVideo.frameRate ?? actualFps,
+          // Update codec with more specific info when available
+          codec: currentVideo.codec == 'H.264'
+              ? 'Intel Quick Sync H.264'
+              : currentVideo.codec,
+          lastVideoUpdate: now,
+          totalFrames: _totalVideoFrames,
+        ) ??
+        VideoStreamInfo(
+          // Fallback if no initial config was set
+          width: width,
+          height: height,
+          receivedWidth: width,
+          receivedHeight: height,
+          frameRate: actualFps,
+          codec: 'Intel Quick Sync H.264',
+          lastVideoUpdate: now,
+          totalFrames: _totalVideoFrames,
+        );
+
+    // Update the adapter status with new video information
+    final updatedStatus = _currentStatus.copyWith(videoStream: updatedVideo);
+    _updateStatus(updatedStatus);
+  }
+
   /// Updates the current status and notifies listeners
   void _updateStatus(AdapterStatusInfo newStatus) {
     if (_currentStatus != newStatus) {
@@ -158,77 +238,140 @@ class AdapterStatusMonitor extends ChangeNotifier {
       notifyListeners();
     }
   }
-  
+
   /// Processes incoming CPC200-CCPA messages to update status.
   /// This method would be called when the Carlink class provides
   /// access to individual protocol messages.
   void processMessage(Message message) {
     try {
       AdapterStatusInfo? updatedStatus;
-      
+
       if (message is Phase) {
         // Process Phase message (0x03)
         final phase = AdapterPhase.fromValue(message.phase);
         updatedStatus = _currentStatus.copyWith(phase: phase);
-        Logger.log('[STATUS_MONITOR] Received Phase: ${phase.displayName}');
-        
+        log('[STATUS_MONITOR] Received Phase: ${phase.displayName}');
       } else if (message is Plugged) {
-        // Process Plugged message (0x02)
-        // Map phoneType to connection status (connected when any phone type is present)
-        final phoneStatus = PhoneConnectionStatus.connected;
-        updatedStatus = _currentStatus.copyWith(phoneStatus: phoneStatus);
-        Logger.log('[STATUS_MONITOR] Received Phone Status: ${phoneStatus.displayName}');
-        
+        // Process Plugged message (0x02) with detailed phone information
+        final platform = PhonePlatform.fromId(message.phoneType.id);
+        final connectionType = message.wifi != null
+            ? PhoneConnectionType.wireless
+            : PhoneConnectionType.wired;
+
+        final phoneConnection = PhoneConnectionInfo(
+          status: PhoneConnectionStatus.connected,
+          platform: platform,
+          connectionType: connectionType,
+          lastUpdate: DateTime.now(),
+        );
+
+        updatedStatus =
+            _currentStatus.copyWith(phoneConnection: phoneConnection);
+        log('[STATUS_MONITOR] Phone Connected: ${platform.displayName} (${connectionType.displayName})');
       } else if (message is Unplugged) {
         // Process Unplugged message (0x04)
-        // Phone has been disconnected
-        final phoneStatus = PhoneConnectionStatus.disconnected;
-        updatedStatus = _currentStatus.copyWith(phoneStatus: phoneStatus);
-        Logger.log('[STATUS_MONITOR] Received Phone Status: ${phoneStatus.displayName}');
-        
+        // Keep platform info but mark as disconnected
+        final phoneConnection = _currentStatus.phoneConnection.copyWith(
+          status: PhoneConnectionStatus.disconnected,
+          lastUpdate: DateTime.now(),
+        );
+
+        updatedStatus =
+            _currentStatus.copyWith(phoneConnection: phoneConnection);
+        log('[STATUS_MONITOR] Phone Disconnected: ${phoneConnection.platform.displayName}');
       } else if (message is SoftwareVersion) {
         // Process Software Version message (0xCC)
         final version = message.version;
         updatedStatus = _currentStatus.copyWith(firmwareVersion: version);
-        Logger.log('[STATUS_MONITOR] Received Firmware Version: $version');
-        
+        log('[STATUS_MONITOR] Received Firmware Version: $version');
       } else if (message is ManufacturerInfo) {
         // Process Manufacturer Info message (0x14)
         final info = {'a': message.a, 'b': message.b};
         updatedStatus = _currentStatus.copyWith(manufacturerInfo: info);
-        Logger.log('[STATUS_MONITOR] Received Manufacturer Info');
-        
+        log('[STATUS_MONITOR] Received Manufacturer Info');
       } else if (message is BoxInfo) {
         // Process Box Settings message (0x19)
         final settings = Map<String, dynamic>.from(message.settings);
         updatedStatus = _currentStatus.copyWith(boxSettings: settings);
-        Logger.log('[STATUS_MONITOR] Received Box Settings');
-        
+        log('[STATUS_MONITOR] Received Box Settings');
       } else if (message is AudioData) {
         // Process AudioData message (0x07)
         _lastAudioDataTime = DateTime.now();
         final hasRecent = _hasRecentAudioData();
         updatedStatus = _currentStatus.copyWith(hasRecentAudioData: hasRecent);
-        Logger.log('[STATUS_MONITOR] Received AudioData - Audio detected');
-        
+        log('[STATUS_MONITOR] Received AudioData - Audio detected',
+            tag: 'AUDIO');
+      } else if (message is VideoData) {
+        // Process VideoData message (0x06)
+        _updateVideoStreamInfo(message.width, message.height);
+        log('[STATUS_MONITOR] Received VideoData - ${message.width}x${message.height}',
+            tag: 'VIDEO');
+        // updatedStatus is handled within _updateVideoStreamInfo
+      } else if (message is BluetoothDeviceName) {
+        // Process Bluetooth Device Name message (0x0D)
+        updatedStatus =
+            _currentStatus.copyWith(bluetoothDeviceName: message.name);
+        log('[STATUS_MONITOR] Received Bluetooth Device Name: ${message.name}');
+      } else if (message is BluetoothPIN) {
+        // Process Bluetooth PIN message (0x0C)
+        updatedStatus = _currentStatus.copyWith(bluetoothPIN: message.pin);
+        log('[STATUS_MONITOR] Received Bluetooth PIN: ${message.pin}');
+      } else if (message is WifiDeviceName) {
+        // Process WiFi Device Name message (0x0E)
+        updatedStatus = _currentStatus.copyWith(wifiDeviceName: message.name);
+        log('[STATUS_MONITOR] Received WiFi Device Name: ${message.name}');
+      } else if (message is NetworkMacAddress) {
+        // Process Network MAC Address message (0x23)
+        final phoneConnection = _currentStatus.phoneConnection.copyWith(
+          connectedPhoneMacAddress: message.macAddress,
+          lastUpdate: DateTime.now(),
+        );
+        updatedStatus =
+            _currentStatus.copyWith(phoneConnection: phoneConnection);
+        log('[STATUS_MONITOR] Received Phone MAC Address: ${message.macAddress}');
+      } else if (message is NetworkMacAddressAlt) {
+        // Process Network MAC Address Alt message (0x24)
+        final phoneConnection = _currentStatus.phoneConnection.copyWith(
+          connectedPhoneMacAddress: message.macAddress,
+          lastUpdate: DateTime.now(),
+        );
+        updatedStatus =
+            _currentStatus.copyWith(phoneConnection: phoneConnection);
+        log('[STATUS_MONITOR] Received Phone MAC Address (Alt): ${message.macAddress}');
+      } else if (message is AdaptrConfigurationMessage) {
+        // Process Dongle Configuration message (internal)
+        // Initialize video stream info with the actual configuration sent to adapter
+        final initialVideoStream = VideoStreamInfo(
+          width: message.width,
+          height: message.height,
+          receivedWidth: null, // Will be populated when VideoData is received
+          receivedHeight: null, // Will be populated when VideoData is received
+          frameRate: message.fps.toDouble(),
+          codec:
+              'H.264', // Default codec type, will be updated when video processing starts
+          lastVideoUpdate: DateTime.now(),
+          totalFrames: 0,
+        );
+        updatedStatus =
+            _currentStatus.copyWith(videoStream: initialVideoStream);
+        log('[STATUS_MONITOR] Initialized video config: ${message.width}x${message.height}@${message.fps}fps');
       }
-      
+
       if (updatedStatus != null) {
         _updateStatus(updatedStatus);
       }
-      
     } catch (e) {
-      Logger.log('[STATUS_MONITOR] Error processing message: $e');
+      logError('[STATUS_MONITOR] Error processing message: $e');
     }
   }
-  
+
   /// Forces a manual status refresh
   void refreshStatus() {
     if (_isMonitoring && _carlink != null) {
       _pollStatus(_pollingTimer!);
     }
   }
-  
+
   @override
   void dispose() {
     stopMonitoring();

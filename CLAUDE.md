@@ -1,5 +1,1 @@
-- Do not modifty project dart files. Unless User directed and with confirmation.
-- Do not modify CPC200-CCPA initilization and keep alive, heartbeat, code/logic. Unless User directed and with confirmation.
-- Ignore macOS and Linux for this project. Android Only
-- mindsdk 31
-- Use docs/Firmware and docs/Autokit for capabilities of CPC200-CCPA adapter. Use docs/old for informatin not found in /Firmware or /Autokit
+minSdk=32; no <API31 fallback; ingest docs/project.md; ref docs/Firmware, docs/GM/gminfo3.7_tech_specs.md, docs/Autokit(orig); verify hw/fw changes; no .dart or CPC200-CCPA init/keepalive edits w/o user; use AS JDK→OS JDK→prompt; build via example/android; ignore macOS/Linux builds; Android-only; respect AA/CarPlay limits

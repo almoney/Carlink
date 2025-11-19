@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:carlink/carlink.dart';
 import 'settings_tab_base.dart';
 import 'settings_enums.dart';
 import 'status_monitor.dart';
-import '../logger.dart';
 
 /// Status tab content widget that displays real-time CPC200-CCPA adapter status.
 /// Shows operational phase, phone connection, firmware version, and other
@@ -13,25 +10,26 @@ class StatusTabContent extends SettingsTabContent {
   const StatusTabContent({
     super.key,
     required super.carlink,
-  }) : super(title: 'Adapter Status');
-  
+  }) : super(title: 'Projection Status');
+
   @override
-  SettingsTabContentState<StatusTabContent> createState() => _StatusTabContentState();
+  SettingsTabContentState<StatusTabContent> createState() =>
+      _StatusTabContentState();
 }
 
 class _StatusTabContentState extends SettingsTabContentState<StatusTabContent>
     with ResponsiveTabMixin {
-  
   @override
-  bool get wantKeepAlive => true; // Keep status tab alive for continuous monitoring
-  
+  bool get wantKeepAlive =>
+      true; // Keep status tab alive for continuous monitoring
+
   @override
   void initState() {
     super.initState();
     // Start monitoring when the tab is initialized
     adapterStatusMonitor.startMonitoring(widget.carlink);
   }
-  
+
   @override
   void didUpdateWidget(StatusTabContent oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -40,29 +38,27 @@ class _StatusTabContentState extends SettingsTabContentState<StatusTabContent>
       adapterStatusMonitor.startMonitoring(widget.carlink);
     }
   }
-  
+
   @override
   void dispose() {
     // Don't stop monitoring on dispose since other parts of the app might need it
     // adapterStatusMonitor.stopMonitoring();
     super.dispose();
   }
-  
+
   @override
   Widget buildTabContent(BuildContext context) {
     return AnimatedBuilder(
       animation: adapterStatusMonitor,
       builder: (context, child) {
         final status = adapterStatusMonitor.currentStatus;
-        
+
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: responsivePadding,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildConnectionOverview(context, status),
-              SizedBox(height: responsiveSpacing),
               _buildStatusGrid(context, status),
             ],
           ),
@@ -70,126 +66,46 @@ class _StatusTabContentState extends SettingsTabContentState<StatusTabContent>
       },
     );
   }
-  
-  /// Builds the connection overview card
-  Widget _buildConnectionOverview(BuildContext context, AdapterStatusInfo status) {
-    final isHealthy = status.isHealthy;
-    final healthColor = isHealthy ? Colors.green : Colors.orange;
-    final healthIcon = isHealthy ? Icons.check_circle : Icons.warning;
-    
-    return Card(
-      color: Colors.grey[800],
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(healthIcon, color: healthColor, size: 24),
-                const SizedBox(width: 8),
-                Text(
-                  'Adapter Status',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              isHealthy 
-                  ? 'All systems operational' 
-                  : 'System not fully operational',
-              style: TextStyle(
-                color: healthColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (!isDeviceAvailable) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.red, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Carlink device not initialized',
-                    style: TextStyle(color: Colors.red, fontSize: 12),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-  
+
   /// Builds the status information grid
   Widget _buildStatusGrid(BuildContext context, AdapterStatusInfo status) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Wrap(
-          spacing: 16.0,
-          runSpacing: 16.0,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildAdapterInfoCard(
+          'Adapter Status',
+          status,
+        ),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildStatusCard(
-              'Operational Status',
-              status.phase.displayName,
-              status.phase.color,
-              Icons.power_settings_new,
-              'Message Type: 0x03',
-            ),
-            _buildStatusCard(
-              'Phone Connection',
-              status.phoneStatus.displayName,
-              status.phoneStatus.color,
-              status.phoneStatus.icon,
-              'Message Type: 0x02',
-            ),
-            if (status.firmwareVersion != null)
-              _buildStatusCard(
-                'Firmware Version',
-                status.firmwareVersion!,
-                Colors.blue,
-                Icons.system_update,
-                'Message Type: 0xCC',
+            Expanded(
+              child: _buildPhoneConnectionCard(
+                'Phone Connection',
+                status.phoneConnection,
               ),
-            _buildCarlinkStateCard(
-              'Carlink State',
-              currentState,
-              isDeviceAvailable,
-              status,
             ),
-            if (status.manufacturerInfo != null)
-              _buildManufacturerInfoCard('Manufacturer Info', status.manufacturerInfo!),
-            if (status.boxSettings != null)
-              _buildBoxSettingsCard('Box Settings', status.boxSettings!),
-          ].map((card) {
-            // Calculate card width based on screen size
-            double cardWidth;
-            if (isSmallScreen) {
-              cardWidth = constraints.maxWidth;
-            } else if (isMediumScreen) {
-              cardWidth = (constraints.maxWidth - 16) / 2;
-            } else {
-              cardWidth = (constraints.maxWidth - 32) / 3;
-            }
-            
-            return SizedBox(
-              width: cardWidth,
-              child: card,
-            );
-          }).toList(),
-        );
-      },
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildVideoStatusCard(
+                'Video Stream',
+                status.videoStream,
+                isDeviceAvailable,
+              ),
+            ),
+          ],
+        ),
+        if (status.manufacturerInfo != null) ...[
+          const SizedBox(height: 16),
+          _buildManufacturerInfoCard(
+              'Manufacturer Info', status.manufacturerInfo!),
+        ],
+      ],
     );
   }
-  
-  /// Builds an individual status card
+
+  /// Builds an individual Material 3 status card
   Widget _buildStatusCard(
     String title,
     String value,
@@ -197,113 +113,46 @@ class _StatusTabContentState extends SettingsTabContentState<StatusTabContent>
     IconData icon,
     String subtitle,
   ) {
+    final theme = Theme.of(context);
+
     return Card(
-      color: Colors.grey[800],
+      elevation: 1,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Icon(icon, color: color, size: 20),
-                const SizedBox(width: 8),
+                Icon(icon, color: color, size: 24),
+                const SizedBox(width: 12),
                 Flexible(
                   child: Text(
                     title,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: theme.textTheme.titleLarge,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
               value,
-              style: TextStyle(
+              style: theme.textTheme.headlineSmall?.copyWith(
                 color: color,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               subtitle,
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 11,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// Builds an expandable card for Box Settings with detailed message information
-  Widget _buildBoxSettingsCard(String title, Map<String, dynamic> settings) {
-    // Get a preview of key settings
-    String preview = '';
-    if (settings.containsKey('MFD')) {
-      preview = settings['MFD'].toString();
-    } else if (settings.containsKey('boxType')) {
-      preview = settings['boxType'].toString();
-    } else if (settings.isNotEmpty) {
-      preview = '${settings.length} settings';
-    }
-    
-    return Card(
-      color: Colors.grey[800],
-      child: ExpansionTile(
-        title: Row(
-          children: [
-            Icon(Icons.settings, color: Colors.blue[300], size: 20),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Text(
-              preview,
-              style: TextStyle(
-                color: Colors.blue[300],
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Message Type: 0x19',
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
-        iconColor: Colors.white,
-        collapsedIconColor: Colors.grey[400],
-        children: [
-          _buildInfoSection('Box Settings Details', settings),
-        ],
       ),
     );
   }
@@ -321,116 +170,85 @@ class _StatusTabContentState extends SettingsTabContentState<StatusTabContent>
     } else if (info.isNotEmpty) {
       preview = '${info.length} details';
     }
-    
+
+    final theme = Theme.of(context);
     return _buildStatusCard(
       title,
       preview,
-      Colors.purple[300]!,
+      theme.colorScheme.secondary,
       Icons.business,
       'Device Information',
     );
   }
 
-  /// Builds a specialized card for Carlink State with Video/Audio status
-  Widget _buildCarlinkStateCard(String title, CarlinkState? state, bool isDeviceAvailable, AdapterStatusInfo status) {
-    final stateColor = _getStateColor(state);
-    final stateName = state?.name ?? 'Unknown';
-    
-    // Check for video streaming
-    String videoStatus = 'Not detected';
-    if (state == CarlinkState.streaming) {
-      videoStatus = 'Streaming';
-    }
-    
-    // Check for audio detection based on recent AudioData messages
-    String audioStatus = 'Not detected';
-    if (status.hasRecentAudioData) {
-      audioStatus = 'Detected';
-    }
-    
+  /// Builds a Material 3 card for Video Stream with resolution, FPS, and codec
+  Widget _buildVideoStatusCard(
+      String title, VideoStreamInfo? videoStream, bool isDeviceAvailable) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final statusColor = isDeviceAvailable && videoStream?.width != null
+        ? colorScheme.primary
+        : colorScheme.onSurfaceVariant;
+    final statusText = isDeviceAvailable && videoStream?.width != null
+        ? 'Streaming'
+        : 'Inactive';
+
     return Card(
-      color: Colors.grey[800],
+      elevation: 1,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Icon(Icons.data_usage, color: stateColor, size: 20),
-                const SizedBox(width: 8),
+                Icon(Icons.videocam, color: statusColor, size: 24),
+                const SizedBox(width: 12),
                 Flexible(
                   child: Text(
                     title,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: theme.textTheme.titleLarge,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
-              stateName,
-              style: TextStyle(
-                color: stateColor,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
+              statusText,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: statusColor,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      'Video: ',
-                      style: TextStyle(
-                        color: Colors.grey[400],
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      videoStatus,
-                      style: TextStyle(
-                        color: videoStatus == 'Streaming' ? Colors.green[300] : Colors.grey[400],
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                _buildDualResolutionRow(
+                  theme,
+                  videoStream,
                 ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Text(
-                      'Audio: ',
-                      style: TextStyle(
-                        color: Colors.grey[400],
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      audioStatus,
-                      style: TextStyle(
-                        color: audioStatus == 'Detected' ? Colors.green[300] : Colors.grey[400],
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 4),
+                _buildDetailRow(
+                  theme,
+                  'Frame Rate: ',
+                  videoStream?.frameRateDisplay ?? '- - -',
+                  videoStream?.frameRate != null,
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
+                _buildDetailRow(
+                  theme,
+                  'Codec: ',
+                  videoStream?.codecDisplay ?? '- - -',
+                  videoStream?.codec != null,
+                ),
+                const SizedBox(height: 8),
                 Text(
-                  'Device: ${isDeviceAvailable ? "Available" : "Unavailable"}',
-                  style: TextStyle(
-                    color: Colors.grey[400],
-                    fontSize: 11,
+                  'Message Types: 0x06, Internal Config',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -441,96 +259,206 @@ class _StatusTabContentState extends SettingsTabContentState<StatusTabContent>
     );
   }
 
-  /// Gets color for current Carlink state
-  Color _getStateColor(CarlinkState? state) {
-    switch (state) {
-      case CarlinkState.streaming:
-        return Colors.green[300]!;
-      case CarlinkState.deviceConnected:
-        return Colors.blue[300]!;
-      case CarlinkState.connecting:
-        return Colors.orange[300]!;
-      case CarlinkState.disconnected:
-      default:
-        return Colors.grey[300]!;
-    }
+  /// Helper to build detail rows consistently
+  Widget _buildDetailRow(
+      ThemeData theme, String label, String value, bool hasValue) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: hasValue
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurfaceVariant,
+            fontWeight: hasValue ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ],
+    );
   }
 
-  /// Builds an information section for expandable content
-  Widget _buildInfoSection(String title, Map<String, dynamic> data) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            textAlign: TextAlign.left,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
+  /// Helper to build resolution row
+  Widget _buildDualResolutionRow(
+      ThemeData theme, VideoStreamInfo? videoStream) {
+    final hasValue = videoStream?.width != null && videoStream?.height != null;
+
+    return Row(
+      children: [
+        Text(
+          'Resolution: ',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(height: 8),
-          ...data.entries.map((entry) {
-            Widget valueWidget;
-            
-            if (entry.value is Map || entry.value is List) {
-              // Format JSON with better indentation and readability
-              final prettyJson = const JsonEncoder.withIndent('  ').convert(entry.value);
-              
-              valueWidget = Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8.0),
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(4.0),
-                  border: Border.all(color: Colors.grey[700]!),
-                ),
-                child: Text(
-                  prettyJson,
-                  textAlign: TextAlign.left,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    height: 1.3,
+        ),
+        Text(
+          videoStream?.resolutionDisplay ?? '- - -',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: hasValue
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurfaceVariant,
+            fontWeight: hasValue ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Builds an enhanced adapter firmware card with network information and phase status
+  Widget _buildAdapterInfoCard(String title, AdapterStatusInfo status) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final firmwareVersion = status.firmwareVersion ?? '- - -';
+    final adapterPhase = status.phase;
+    final phaseColor = adapterPhase.getColor(colorScheme);
+    final phaseName = adapterPhase.displayName;
+
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.system_update, color: phaseColor, size: 24),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleLarge,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              );
-            } else {
-              valueWidget = Text(
-                entry.value.toString(),
-                textAlign: TextAlign.left,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                ),
-              );
-            }
-            
-            return Padding(
-              padding: const EdgeInsets.only(left: 16.0, bottom: 8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${entry.key}:',
-                    textAlign: TextAlign.left,
-                    style: TextStyle(
-                      color: Colors.grey[300],
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4.0),
-                  valueWidget,
-                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              phaseName,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: phaseColor,
+                fontWeight: FontWeight.w600,
               ),
-            );
-          }),
-        ],
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailRow(
+                  theme,
+                  'Firmware: ',
+                  firmwareVersion,
+                  status.firmwareVersion != null,
+                ),
+                const SizedBox(height: 4),
+                _buildDetailRow(
+                  theme,
+                  'BT Name: ',
+                  status.bluetoothDeviceName ?? '- - -',
+                  status.bluetoothDeviceName != null,
+                ),
+                const SizedBox(height: 4),
+                _buildDetailRow(
+                  theme,
+                  'WiFi Name: ',
+                  status.wifiDeviceName ?? '- - -',
+                  status.wifiDeviceName != null,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Message Types: 0x03, 0xCC, 0x0D, 0x0E, 0x07, 0x16, 0x19, 0x3E8, 0x3EA',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Builds an enhanced phone connection card with platform and connection details
+  Widget _buildPhoneConnectionCard(
+      String title, PhoneConnectionInfo phoneConnection) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final status = phoneConnection.status;
+    final statusColor = phoneConnection.displayColor(colorScheme);
+    final statusName = status.displayName;
+
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(phoneConnection.displayIcon, color: statusColor, size: 24),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleLarge,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              statusName,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: statusColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailRow(
+                  theme,
+                  'Platform: ',
+                  phoneConnection.platformDisplay,
+                  phoneConnection.platform != PhonePlatform.unknown,
+                ),
+                const SizedBox(height: 4),
+                _buildDetailRow(
+                  theme,
+                  'Connection: ',
+                  phoneConnection.connectionTypeDisplay,
+                  phoneConnection.connectionType != PhoneConnectionType.unknown,
+                ),
+                const SizedBox(height: 4),
+                _buildDetailRow(
+                  theme,
+                  'BT MAC: ',
+                  phoneConnection.connectedPhoneMacDisplay,
+                  phoneConnection.connectedPhoneMacAddress != null,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Message Types: 0x02, 0x04, 0x23, 0x24',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

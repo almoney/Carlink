@@ -27,7 +27,7 @@ abstract class CarlinkPlatform extends PlatformInterface {
     _instance = instance;
   }
 
-  static setLogHandler(Function(String)? logHandler) {
+  static void setLogHandler(Function(String)? logHandler) {
     (_instance as MethodChannelCarlink).setLogHandler(logHandler);
   }
 
@@ -46,6 +46,19 @@ abstract class CarlinkPlatform extends PlatformInterface {
 
   Future<Map<String, dynamic>> getDisplayMetrics() async {
     throw UnimplementedError('getDisplayMetrics() has not been implemented.');
+  }
+
+  /// Returns window bounds information from Android WindowManager.
+  ///
+  /// Returns a map containing:
+  /// - `width`, `height`: Full window dimensions (physical pixels)
+  /// - `usableWidth`, `usableHeight`: Area minus system UI (physical pixels)
+  /// - `insetsTop`, `insetsBottom`, `insetsLeft`, `insetsRight`: System UI insets (physical pixels)
+  ///
+  /// In immersive mode, usable area equals full window dimensions.
+  /// In non-immersive mode, usable area excludes system bars and display cutouts.
+  Future<Map<String, dynamic>> getWindowBounds() async {
+    throw UnimplementedError('getWindowBounds() has not been implemented.');
   }
 
   Future<int> createTexture(int width, int height) async {
@@ -118,13 +131,19 @@ abstract class CarlinkPlatform extends PlatformInterface {
   }
 
   Future<Uint8List> bulkTransferIn(
-      UsbEndpoint endpoint, int maxLength, int timeout,
-      {bool isVideoData = false}) async {
+    UsbEndpoint endpoint,
+    int maxLength,
+    int timeout, {
+    bool isVideoData = false,
+  }) async {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
 
   Future<int> bulkTransferOut(
-      UsbEndpoint endpoint, Uint8List data, int timeout) async {
+    UsbEndpoint endpoint,
+    Uint8List data,
+    int timeout,
+  ) async {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
 }

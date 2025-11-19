@@ -81,8 +81,9 @@ class UsbInterface {
   });
 
   factory UsbInterface.fromMap(Map<dynamic, dynamic> map) {
-    var endpoints =
-        (map['endpoints'] as List).map((e) => UsbEndpoint.fromMap(e)).toList();
+    var endpoints = (map['endpoints'] as List)
+        .map((e) => UsbEndpoint.fromMap(e))
+        .toList();
     return UsbInterface(
       id: map['id'],
       alternateSetting: map['alternateSetting'],

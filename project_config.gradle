@@ -1,32 +1,42 @@
 ext {
-    // Project Configuration - Centralized build settings following Gradle best practices
-    // Based on 2025 Android development standards and naming conventions
-    
-    // Application Configuration - For example/demo app
-    myApplicationId = "com.test.carlink"
-    myApplicationName = "Carlink"
-    
-    // App Version Configuration
-    myVersionCode = 3
-    myVersionName = "1.6.0"
-    
-    // Android SDK Configuration - Target Android API levels
-    myCompileSdk = 35
-    myTargetSdk = 34
-    myMinSdk = 31
-    
-    // Library Configuration - For the carlink library module
-    myLibraryGroup = "com.carlink"
-    myLibraryVersion = "1.0.0"
-    myLibraryMinSdk = 31
-    
-    // Build Tools Configuration - Versions for build system and language tools
-    myKotlinVersion = "2.2.0"
-    // Note: This controls the Android Gradle Plugin (AGP) version, not Gradle wrapper version
-    // Gradle wrapper version is controlled by gradle/wrapper/gradle-wrapper.properties
-    myGradleVersion = "8.12.1"  // Actually AGP version - naming kept for compatibility
-    
-    // Java/JVM Configuration - Language level and target compatibility  
-    myJavaVersion = JavaVersion.VERSION_21
-    myJvmTarget = "21"
+    // =============================================================================
+    // Carlink - Centralized Build Configuration
+    // =============================================================================
+    // Single source of truth for versions, SDK levels, and build settings.
+    // Update this file before publishing to Google Play Store.
+    // =============================================================================
+
+    // -----------------------------------------------------------------------------
+    // PLAY STORE RELEASE CONFIGURATION (Update before each release)
+    // -----------------------------------------------------------------------------
+    myApplicationId = "com.your.app"      // Package name (com.your.app)
+    myApplicationName = "Carlink"            // App display name
+    myVersionCode = 1                       // Play Store version code (increment for each release)
+    myVersionName = "1.0.0"                  // User-visible version (semantic versioning)
+
+    // -----------------------------------------------------------------------------
+    // ANDROID SDK LEVELS (Stable - change rarely)
+    // -----------------------------------------------------------------------------
+    myCompileSdk = 36                        // Compile against Android API 36
+    myTargetSdk = 34                         // Target Android API 34
+    myMinSdk = 32                            // Minimum Android API 32 (Android 12L)
+
+    // -----------------------------------------------------------------------------
+    // PLUGIN LIBRARY CONFIGURATION (Stable - change on major plugin updates)
+    // -----------------------------------------------------------------------------
+    myLibraryGroup = "com.carlink"           // Plugin package namespace
+    myLibraryVersion = "1.0.0"               // Plugin library version
+
+    // -----------------------------------------------------------------------------
+    // BUILD TOOLS VERSIONS (Update when upgrading toolchain)
+    // -----------------------------------------------------------------------------
+    myKotlinVersion = "2.2.0"                // Kotlin compiler version
+    myAgpVersion = "8.12.1"                  // Android Gradle Plugin (AGP) version
+    myGradleVersion = myAgpVersion           // Alias for compatibility (deprecated, use myAgpVersion)
+
+    // -----------------------------------------------------------------------------
+    // JAVA/JVM CONFIGURATION (Stable)
+    // -----------------------------------------------------------------------------
+    myJavaVersion = JavaVersion.VERSION_21   // Java source/target compatibility
+    myJvmTarget = "21"                       // Kotlin JVM target bytecode version
 }

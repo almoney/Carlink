@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dart_buffer/dart_buffer.dart';
+import '../log.dart';
 
 import '../common.dart';
 
@@ -127,20 +128,42 @@ class BluetoothPairedList extends Message {
   String toString() => "BluetoothPairedList: $data";
 }
 
-enum PhoneType {
-  AndroidMirror(1),
-  CarPlay(3),
-  iPhoneMirror(4),
-  AndroidAuto(5),
-  HiCar(6),
+class NetworkMacAddress extends Message {
+  late final String macAddress;
 
-  Unknown(-1);
+  NetworkMacAddress(super.header, ByteData data) {
+    macAddress = ascii.decode(data.buffer.asUint8List(), allowInvalid: true);
+  }
+
+  @override
+  String toString() => "NetworkMacAddress: $macAddress";
+}
+
+class NetworkMacAddressAlt extends Message {
+  late final String macAddress;
+
+  NetworkMacAddressAlt(super.header, ByteData data) {
+    macAddress = ascii.decode(data.buffer.asUint8List(), allowInvalid: true);
+  }
+
+  @override
+  String toString() => "NetworkMacAddressAlt: $macAddress";
+}
+
+enum PhoneType {
+  androidMirror(1),
+  carPlay(3),
+  iPhoneMirror(4),
+  androidAuto(5),
+  hiCar(6),
+
+  unknown(-1);
 
   final int id;
   const PhoneType(this.id);
 
   factory PhoneType.fromId(int id) {
-    return values.firstWhere((e) => e.id == id, orElse: () => Unknown);
+    return values.firstWhere((e) => e.id == id, orElse: () => unknown);
   }
 }
 
@@ -156,9 +179,9 @@ class Plugged extends Message {
     if (wifiAvail) {
       wifi = reader.getUInt32();
 
-      print('wifi avail, phone type: $phoneType wifi: $wifi');
+      log('wifi avail, phone type: $phoneType wifi: $wifi', tag: 'PHONE');
     } else {
-      print('no wifi avail, phone type: $phoneType');
+      log('no wifi avail, phone type: $phoneType', tag: 'PHONE');
     }
   }
 
@@ -178,46 +201,21 @@ class AudioFormat {
   final int channel;
   final int bitrate;
 
-  const AudioFormat(
-      {required this.frequency, required this.channel, required this.bitrate});
+  const AudioFormat({
+    required this.frequency,
+    required this.channel,
+    required this.bitrate,
+  });
 }
 
 const Map<int, AudioFormat> decodeTypeMap = {
-  1: AudioFormat(
-    frequency: 44100,
-    channel: 2,
-    bitrate: 16,
-  ),
-  2: AudioFormat(
-    frequency: 44100,
-    channel: 2,
-    bitrate: 16,
-  ),
-  3: AudioFormat(
-    frequency: 8000,
-    channel: 1,
-    bitrate: 16,
-  ),
-  4: AudioFormat(
-    frequency: 48000,
-    channel: 2,
-    bitrate: 16,
-  ),
-  5: AudioFormat(
-    frequency: 16000,
-    channel: 1,
-    bitrate: 16,
-  ),
-  6: AudioFormat(
-    frequency: 24000,
-    channel: 1,
-    bitrate: 16,
-  ),
-  7: AudioFormat(
-    frequency: 16000,
-    channel: 2,
-    bitrate: 16,
-  ),
+  1: AudioFormat(frequency: 44100, channel: 2, bitrate: 16),
+  2: AudioFormat(frequency: 44100, channel: 2, bitrate: 16),
+  3: AudioFormat(frequency: 8000, channel: 1, bitrate: 16),
+  4: AudioFormat(frequency: 48000, channel: 2, bitrate: 16),
+  5: AudioFormat(frequency: 16000, channel: 1, bitrate: 16),
+  6: AudioFormat(frequency: 24000, channel: 1, bitrate: 16),
+  7: AudioFormat(frequency: 16000, channel: 2, bitrate: 16),
 };
 
 class AudioData extends Message {
@@ -236,21 +234,21 @@ class AudioData extends Message {
     audioType = reader.getUInt32();
     final amount = data.lengthInBytes - 12;
 
-    AudioCommand? _command = null;
-    Uint16List? _data = null;
-    double? _volumeDuration = null;
+    AudioCommand? audioCommand;
+    Uint16List? audioData;
+    double? audioDuration;
 
     if (amount == 1) {
-      _command = AudioCommand.fromId(reader.getInt8());
+      audioCommand = AudioCommand.fromId(reader.getInt8());
     } else if (amount == 4) {
-      _volumeDuration = reader.getFloat32();
+      audioDuration = reader.getFloat32();
     } else {
-      _data = data.buffer.asUint16List(12);
+      audioData = data.buffer.asUint16List(12);
     }
 
-    command = _command;
-    this.data = _data;
-    volumeDuration = _volumeDuration;
+    command = audioCommand;
+    this.data = audioData;
+    volumeDuration = audioDuration;
   }
 
   @override
@@ -260,27 +258,33 @@ class AudioData extends Message {
       switch (command!) {
         case AudioCommand.AudioOutputStart:
         case AudioCommand.AudioOutputStop:
-          audioTypeDescription = 'General Audio ${command!.name.contains('Start') ? 'START' : 'STOP'}';
+          audioTypeDescription =
+              'General Audio ${command!.name.contains('Start') ? 'START' : 'STOP'}';
           break;
         case AudioCommand.AudioPhonecallStart:
         case AudioCommand.AudioPhonecallStop:
-          audioTypeDescription = 'Phone Call ${command!.name.contains('Start') ? 'START' : 'STOP'}';
+          audioTypeDescription =
+              'Phone Call ${command!.name.contains('Start') ? 'START' : 'STOP'}';
           break;
         case AudioCommand.AudioSiriStart:
         case AudioCommand.AudioSiriStop:
-          audioTypeDescription = 'Voice Assistant (Siri) ${command!.name.contains('Start') ? 'START' : 'STOP'}';
+          audioTypeDescription =
+              'Voice Assistant (Siri) ${command!.name.contains('Start') ? 'START' : 'STOP'}';
           break;
         case AudioCommand.AudioNaviStart:
         case AudioCommand.AudioNaviStop:
-          audioTypeDescription = 'Navigation ${command!.name.contains('Start') ? 'START' : 'STOP'}';
+          audioTypeDescription =
+              'Navigation ${command!.name.contains('Start') ? 'START' : 'STOP'}';
           break;
         case AudioCommand.AudioMediaStart:
         case AudioCommand.AudioMediaStop:
-          audioTypeDescription = 'Music/Media ${command!.name.contains('Start') ? 'START' : 'STOP'}';
+          audioTypeDescription =
+              'Music/Media ${command!.name.contains('Start') ? 'START' : 'STOP'}';
           break;
         case AudioCommand.AudioAlertStart:
         case AudioCommand.AudioAlertStop:
-          audioTypeDescription = 'Alert/Notification ${command!.name.contains('Start') ? 'START' : 'STOP'}';
+          audioTypeDescription =
+              'Alert/Notification ${command!.name.contains('Start') ? 'START' : 'STOP'}';
           break;
         case AudioCommand.AudioInputConfig:
           audioTypeDescription = 'Microphone Config';
@@ -291,8 +295,10 @@ class AudioData extends Message {
     }
 
     final format = decodeTypeMap[decodeType];
-    final formatInfo = format != null ? '${format.frequency}Hz ${format.channel}ch ${format.bitrate}bit' : 'unknown';
-    
+    final formatInfo = format != null
+        ? '${format.frequency}Hz ${format.channel}ch ${format.bitrate}bit'
+        : 'unknown';
+
     return "AudioData: $audioTypeDescription, Format: $formatInfo, Volume: ${(volume * 100).toInt()}%, AudioType: $audioType";
   }
 }
@@ -333,16 +339,16 @@ class VideoData extends Message {
 }
 
 enum MediaType {
-  Data(1),
-  AlbumCover(3),
+  data(1),
+  albumCover(3),
 
-  Unknown(-1);
+  unknown(-1);
 
   final int id;
   const MediaType(this.id);
 
   factory MediaType.fromId(int id) {
-    return values.firstWhere((e) => e.id == id, orElse: () => Unknown);
+    return values.firstWhere((e) => e.id == id, orElse: () => unknown);
   }
 }
 
@@ -368,43 +374,23 @@ class MediaData extends Message {
     final typeInt = reader.getUInt32();
     type = MediaType.fromId(typeInt);
 
-    if (type == MediaType.AlbumCover) {
+    if (type == MediaType.albumCover) {
       final extraData = data.buffer.asUint8List().sublist(4);
       payload = {"AlbumCover": extraData};
-      // print("MediaType.AlbumCover");
-      // const imageData = data.subarray(4)
-      // payload = {
-      //   type,
-      //   base64Image: imageData.toString('base64'),
-      // }
-    } else if (type == MediaType.Data) {
-      final extraData =
-          data.buffer.asUint8List().sublist(4, data.lengthInBytes - 1);
+    } else if (type == MediaType.data) {
+      final extraData = data.buffer.asUint8List().sublist(
+        4,
+        data.lengthInBytes - 1,
+      );
       try {
         payload = jsonDecode(utf8.decode(extraData));
       } catch (e) {
-        print("MediaType.Data parse error: $e");
+        logError("MediaType.data parse error: $e", tag: 'MEDIA');
         payload = {};
       }
-      // print("MediaType.Data");
-      // print(utf8.decode(extraData));
-      // const mediaData = data.subarray(4, data.length - 1)
-      // payload = {
-      //   type,
-      //   media: JSON.parse(mediaData.toString('utf8')),
-      // }
     } else {
-      print("Unexpected media type: $typeInt");
-
-//       final extraData = data.buffer.asUint8List();
-//       try {
-//         final str = ascii.decode(extraData, allowInvalid: true);
-// //        print(str);
-//         payload = jsonDecode(str);
-//       } catch (e) {
-      // print(e);
+      logWarn("Unexpected media type: $typeInt", tag: 'MEDIA');
       payload = {};
-      // }
     }
   }
 
@@ -446,7 +432,7 @@ class BoxInfo extends Message {
       final str = utf8.decode(data.buffer.asUint8List(), allowMalformed: true);
       settings = jsonDecode(str);
     } catch (e) {
-      print("BoxInfo parse error: $e");
+      logError("BoxInfo parse error: $e", tag: 'BOX');
     }
   }
 
@@ -463,5 +449,25 @@ class Phase extends Message {
   }
 
   @override
-  String toString() => "Phase: phase=${phase}";
+  String toString() => "Phase: phase=$phase";
+}
+
+class AdaptrConfigurationMessage extends Message {
+  final int width;
+  final int height;
+  final int fps;
+  final String wifiType;
+  final String micType;
+
+  AdaptrConfigurationMessage(dynamic config)
+    : width = config.width,
+      height = config.height,
+      fps = config.fps,
+      wifiType = config.wifiType,
+      micType = config.micType,
+      super(MessageHeader(0, MessageType.Unknown));
+
+  @override
+  String toString() =>
+      "AdapterConfiguration: ${width}x$height@${fps}fps wifi=$wifiType mic=$micType";
 }

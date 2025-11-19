@@ -1,0 +1,33 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:BulkTransferHandler.kt$BulkTransferHandler$private fun handleBulkTransferIn( call: MethodCall, result: Result, )</ID>
+    <ID>CyclomaticComplexMethod:BulkTransferHandler.kt$BulkTransferHandler$private fun runReadingLoop( transferManager: BulkTransferManager, connection: android.hardware.usb.UsbDeviceConnection, endpoint: UsbEndpoint, timeout: Int, )</ID>
+    <ID>LongMethod:BulkTransferHandler.kt$BulkTransferHandler$private fun handleBulkTransferIn( call: MethodCall, result: Result, )</ID>
+    <ID>LongMethod:BulkTransferHandler.kt$BulkTransferHandler$private fun runReadingLoop( transferManager: BulkTransferManager, connection: android.hardware.usb.UsbDeviceConnection, endpoint: UsbEndpoint, timeout: Int, )</ID>
+    <ID>LongParameterList:BulkTransferManager.kt$BulkTransferManager$( connection: UsbDeviceConnection, endpoint: UsbEndpoint, buffer: ByteArray, bufferOffset: Int, maxLength: Int, timeout: Int, )</ID>
+    <ID>LoopWithTooManyJumpStatements:BulkTransferHandler.kt$BulkTransferHandler$while</ID>
+    <ID>NestedBlockDepth:BulkTransferHandler.kt$BulkTransferHandler$private fun runReadingLoop( transferManager: BulkTransferManager, connection: android.hardware.usb.UsbDeviceConnection, endpoint: UsbEndpoint, timeout: Int, )</ID>
+    <ID>ReturnCount:BulkTransferHandler.kt$BulkTransferHandler$private fun handleBulkTransferIn( call: MethodCall, result: Result, )</ID>
+    <ID>ReturnCount:BulkTransferHandler.kt$BulkTransferHandler$private fun handleBulkTransferOut( call: MethodCall, result: Result, )</ID>
+    <ID>ReturnCount:BulkTransferHandler.kt$BulkTransferHandler$private fun handleStartReadingLoop( call: MethodCall, result: Result, )</ID>
+    <ID>ReturnCount:UsbDeviceHandler.kt$UsbDeviceHandler$private fun handleGetDeviceDescription( call: MethodCall, result: Result, )</ID>
+    <ID>ReturnCount:UsbDeviceManager.kt$UsbDeviceManager$fun claimInterface( id: Int, alternateSetting: Int, ): Result&lt;Boolean&gt;</ID>
+    <ID>ReturnCount:VideoTextureManager.kt$VideoTextureManager$@Synchronized fun processVideoBuffer(buffer: ByteArray): Boolean</ID>
+    <ID>SwallowedException:UsbDeviceManager.kt$UsbDeviceManager$e: IllegalArgumentException</ID>
+    <ID>ThrowsCount:BulkTransferManager.kt$BulkTransferManager$fun performBulkTransferIn( connection: UsbDeviceConnection, endpoint: UsbEndpoint, maxLength: Int, timeout: Int, retryCount: Int = DEFAULT_RETRY_COUNT, ): ByteArray?</ID>
+    <ID>ThrowsCount:BulkTransferManager.kt$BulkTransferManager$fun performBulkTransferOut( connection: UsbDeviceConnection, endpoint: UsbEndpoint, data: ByteArray, timeout: Int, retryCount: Int = DEFAULT_RETRY_COUNT, ): Int</ID>
+    <ID>TooGenericExceptionCaught:BulkTransferHandler.kt$BulkTransferHandler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:BulkTransferManager.kt$BulkTransferManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:CarlinkPlugin.kt$CarlinkPlugin$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:DisplayMetricsHandler.kt$DisplayMetricsHandler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:UsbDeviceManager.kt$UsbDeviceManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:VideoHandler.kt$VideoHandler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:VideoTextureManager.kt$VideoTextureManager$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:BulkTransferManager.kt$BulkTransferManager$throw Exception("Device disconnected during transfer")</ID>
+    <ID>TooGenericExceptionThrown:BulkTransferManager.kt$BulkTransferManager$throw Exception("Transfer error: actualLength=$actualLength")</ID>
+    <ID>TooManyFunctions:UsbDeviceManager.kt$UsbDeviceManager</ID>
+    <ID>UnusedPrivateProperty:UsbDeviceHandler.kt$UsbDeviceHandler$private val logCallback: LogCallback</ID>
+  </CurrentIssues>
+</SmellBaseline>

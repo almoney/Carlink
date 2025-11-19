@@ -13,6 +13,11 @@ buildscript {
     }
 }
 
+plugins {
+    id "io.gitlab.arturbosch.detekt" version "1.23.7"
+    id "org.jlleitschuh.gradle.ktlint" version "12.1.1"
+}
+
 allprojects {
     repositories {
         google()
@@ -28,6 +33,30 @@ version myLibraryVersion
 
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
+
+// Configure detekt for static analysis
+detekt {
+    buildUponDefaultConfig = true
+    allRules = false
+    config.setFrom(files("${rootProject.projectDir}/../detekt.yml"))
+    baseline = file("${rootProject.projectDir}/../detekt-baseline.xml")
+}
+
+tasks.withType(io.gitlab.arturbosch.detekt.Detekt).configureEach {
+    jvmTarget = "17"  // Detekt doesn't support JVM 21 yet, use 17 for analysis
+}
+
+// Configure ktlint for code formatting
+ktlint {
+    version = "1.0.1"
+    android = true
+    ignoreFailures = false
+    reporters {
+        reporter "plain"
+        reporter "checkstyle"
+        reporter "sarif"
+    }
+}
 
 android {
     if (project.android.hasProperty("namespace")) {
@@ -51,7 +80,7 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion myLibraryMinSdk
+        minSdkVersion myMinSdk
     }
 
     dependencies {

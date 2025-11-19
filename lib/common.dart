@@ -22,9 +22,11 @@ enum CommandMapping {
   right(101), //'Button Right',
   frame(12),
   audioTransferOn(
-      22), // Phone will Stream audio directly to car system and not dongle
+    22,
+  ), // Phone will Stream audio directly to car system and not adapter
   audioTransferOff(
-      23), // DEFAULT - Phone will stream audio to the dongle and it will send it over the link
+    23,
+  ), // DEFAULT - Phone will stream audio to the adapter and it will send it over the link
   selectDown(104), //'Button Select Down',
   selectUp(105), //'Button Select Up',
   back(106), //'Button Back',
@@ -46,7 +48,9 @@ enum CommandMapping {
   btConnected(1007),
   btDisconnected(1008),
   wifiConnected(1009),
-  wifiDisconnected(1010),
+  projectionDisconnected(
+    1010,
+  ), // Phone projection session ended (legacy name: wifiDisconnected)
   btPairStart(1011),
   wifiPair(1012);
 
@@ -69,7 +73,7 @@ enum MessageType {
   Command(0x08),
   LogoType(0x09),
   DisconnectPhone(0xf),
-  CloseDongle(0x15),
+  CloseAdaptr(0x15),
   BluetoothAddress(0x0a),
   BluetoothPIN(0x0c),
   BluetoothDeviceName(0x0d),
@@ -79,6 +83,8 @@ enum MessageType {
   MultiTouch(0x17),
   HiCarLink(0x18),
   BoxSettings(0x19),
+  NetworkMacAddress(0x23),
+  NetworkMacAddressAlt(0x24),
   MediaData(0x2a),
   SendFile(0x99),
   HeartBeat(0xaa),
@@ -160,7 +166,8 @@ class MessageHeader {
   static MessageHeader fromBuffer(BufferReader data) {
     if (data.length != 16) {
       throw HeaderBuildError(
-          'Invalid buffer size - Expecting 16, got ${data.length}');
+        'Invalid buffer size - Expecting 16, got ${data.length}',
+      );
     }
     final magic = data.getUInt32();
     if (magic != MessageHeader.magic) {
@@ -218,6 +225,10 @@ class MessageHeader {
           return HiCarLink(this, data);
         case MessageType.BluetoothPairedList:
           return BluetoothPairedList(this, data);
+        case MessageType.NetworkMacAddress:
+          return NetworkMacAddress(this, data);
+        case MessageType.NetworkMacAddressAlt:
+          return NetworkMacAddressAlt(this, data);
         case MessageType.Open:
           return Opened(this, data);
         case MessageType.BoxSettings:
