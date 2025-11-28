@@ -1,3 +1,27 @@
+# OS artifacts
 .DS_Store
-lib/driver/.DS_Store
-lib/driver/.DS_Store
+**/.DS_Store
+
+# Local properties (machine-specific SDK paths - auto-generated)
+**/local.properties
+local.properties
+
+# Flutter generated
+**/GeneratedPluginRegistrant.java
+
+# Build outputs
+**/build/
+**/outputs/
+
+# IDE and tooling caches
+**/.gradle/
+**/.idea/
+**/.kotlin/
+**/*.iml
+
+# Dart/Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+pubspec.lock
