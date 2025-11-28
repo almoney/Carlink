@@ -112,6 +112,9 @@ public class H264Renderer {
     private static final long PERF_LOG_INTERVAL_MS = 30000;
     private long lastPerfLogTime = 0;
 
+    // Codec name for status reporting
+    private String currentCodecName = null;
+
     private int calculateOptimalBufferSize(int width, int height) {
         // Base calculation for different resolutions - this is for the ring buffer
         int pixels = width * height;
@@ -340,6 +343,14 @@ public class H264Renderer {
     }
 
 
+    /**
+     * Returns the current codec name for status reporting.
+     * @return Codec name or null if not initialized
+     */
+    public String getCodecName() {
+        return currentCodecName;
+    }
+
     public void reset() {
         codecResetCount++;
         log("reset codec - Reset count: " + codecResetCount + ", Frames decoded: " + totalFramesDecoded);
@@ -382,6 +393,7 @@ public class H264Renderer {
         }
         
         mCodec = codec;
+        currentCodecName = codecName;
         log("codec created: " + codecName);
 
         final MediaFormat mediaformat = MediaFormat.createVideoFormat("video/avc", width, height);
@@ -668,9 +680,10 @@ public class H264Renderer {
                 perfMsg += " [Intel Quick Sync Active]";
             }
             
-            // Warning if performance is suboptimal for gminfo3.7 hardware (Intel HD Graphics 505)
+            // Warning if performance is suboptimal for target hardware
             if (fps < 55.0 && totalFramesReceived > 120) {
-                perfMsg += " [WARNING: Low FPS on Intel HD Graphics 505]";
+                String codecDisplayName = currentCodecName != null ? currentCodecName : "Unknown Codec";
+                perfMsg += " [WARNING: Low FPS on " + codecDisplayName + "]";
             }
             
             // Monitor frame lag for performance analysis (no aggressive action)

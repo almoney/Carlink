@@ -1,0 +1,212 @@
+SESSION 3 LOG ANALYSIS
+======================
+Date: 2025-11-27
+Time Range: 10:35:00 AM - 11:35:00 AM (1 hour)
+Test Type: Simple Media Playback (Apple Music)
+Log Level: audioOnly
+Result: 4 ANR crashes, 3 disconnects
+
+
+SUMMARY
+-------
+Session experienced repeated ANR crashes caused by audio underrun accumulation leading to main thread starvation. Pattern: underruns accumulate -> main thread blocks -> ANR -> crash.
+
+
+TIMELINE OF EVENTS
+------------------
+
+10:35:00 - Session Start
+- Audio streaming began normally
+- Format: 48kHz stereo (decodeType=4)
+- First underrun at 10:35:05 (normal startup transient)
+
+10:35:00 - 10:48:34 - Normal Operation
+- Steady audio streaming
+- Heartbeat messages every 400ms
+- No anomalies
+
+10:48:35 - Disconnect Event 1
+- CarPlay session ended (logical disconnect, not USB physical)
+- App released DualStreamAudioManager
+- Video codec reset
+- Reconnection attempted
+
+10:49:xx - Reconnection
+- USB device rediscovered
+- Video codec reinitialized
+- USER OBSERVATION: No audio heard after reconnect
+
+10:50:00 - 10:55:51 - Silent Period
+- No audio data being processed
+- App likely stuck in bad state
+
+10:55:52 - ANR Crash 1
+- ANR in com.test.fudge MainActivity
+- PID: 13363
+- Tombstone created
+- Force finish activity
+
+10:56:15 - App Force Closed
+10:56:23 - App Auto Restart
+- New session: carlink_20251127_105623_639
+- USB device reconnected
+- Audio reinitialized
+
+10:57:xx - Audio Resumed
+- USER OBSERVATION: Audio present after restart
+
+11:00:00 - 11:15:00 - Underrun Accumulation
+- Underruns climbing steadily
+- 11:11:15 - Total underruns: 8,635
+- 11:14:00 - Total underruns: 10,274
+- ALSA layer dropping 240 frames every 95ms
+- USER OBSERVATION: Audio distortion around 11:15
+
+11:15:00 - Video Buffer Spike
+- H264 buffer usage: 402 packets (normal: 20-30)
+- Indicates decoder backpressure
+
+11:15:35 - ANR Crash 2
+- ANR in com.test.fudge MainActivity
+- PID: 13992
+- Main thread unresponsive 5+ seconds
+
+11:16:xx - App Auto Restart
+- New session started
+- First underrun at 11:16:13
+
+11:22:xx - Disconnect Event 2
+- USER OBSERVATION: Unexpected disconnect
+- Same pattern as first disconnect
+- No audio after reconnect
+
+11:35:45 - ANR Crash 3 (Final)
+- ANR in com.test.fudge MainActivity
+- PID: 14473
+- Session ended
+
+
+LOG FILE EVIDENCE
+-----------------
+
+Carlink Log - Disconnect at 10:48:35:
+10:48:35.770 [MEDIA_SESSION] Playback state: CONNECTING
+10:48:35.772 [USB] Closing device connection
+10:48:35.772 [USB] Device connection closed
+10:48:35.773 [AUDIO] Releasing DualStreamAudioManager
+10:48:35.774 [AUDIO] DualStreamAudioManager released
+10:48:35.780 [MEDIA_SESSION] Playback state: STOPPED
+
+Logcat - Underrun Pattern at 11:14:
+11-27 11:14:00.040 CARLINK_AUDIO: [AUDIO_UNDERRUN] Media underrun detected: +1 (total: 10274)
+11-27 11:14:00.089 AHAL_StreamAlsa: transfer: sink 0 incomplete data sent, dropping 240 frames
+11-27 11:14:00.154 CARLINK_AUDIO: [AUDIO_UNDERRUN] Media underrun detected: +1 (total: 10275)
+11-27 11:14:00.184 AHAL_StreamAlsa: transfer: sink 0 incomplete data sent, dropping 240 frames
+
+Logcat - ANR Events:
+11-27 10:55:52.126 ActivityManager: ANR in com.test.fudge PID: 13363
+11-27 11:15:35.923 ActivityManager: ANR in com.test.fudge PID: 13992
+11-27 11:35:45.350 ActivityManager: ANR in com.test.fudge PID: 14473
+
+Logcat - Video Buffer Spike:
+11-27 11:15:00.002 CARLINK: [H264_RENDERER] [BUFFER_WARNING] High buffer usage: 402 packets
+11-27 11:15:00.013 CARLINK: [H264_RENDERER] [BUFFER_WARNING] High buffer usage: 403 packets
+
+
+IDENTIFIED ISSUES
+-----------------
+
+Issue 1: Underrun Runaway Condition
+Location: DualStreamAudioManager.kt playback thread
+Description: Audio underruns accumulate from 1 to 10,000+ without recovery. AudioTrack becomes starved and never recovers.
+Impact: Audio distortion, eventual main thread block, ANR crash.
+
+Issue 2: Main Thread Audio Processing
+Location: Audio write path Dart to Kotlin
+Description: ANRs coincide with high underrun counts and video buffer spikes. Main thread appears to be involved in audio processing.
+Impact: UI freezes when audio pipeline is stressed.
+
+Issue 3: Post-Disconnect Audio Not Resuming
+Location: Reconnection logic in carlink.dart and DualStreamAudioManager.kt
+Description: After CarPlay session disconnect and reconnect, audio does not resume even though USB connection is restored.
+Impact: Users lose audio after any CarPlay interruption.
+
+Issue 4: Video Buffer Unbounded Growth
+Location: H264Renderer buffer pool
+Description: Video buffer can grow to 400+ packets before causing problems.
+Impact: Memory pressure, MediaCodec backpressure blocking main thread.
+
+
+ROOT CAUSE ANALYSIS
+-------------------
+
+Primary Cause:
+The audio playback thread in DualStreamAudioManager is not receiving data fast enough from the USB read thread. This causes AudioTrack underruns. The underruns accumulate because there is no recovery mechanism.
+
+When underruns reach critical levels (10,000+), the audio system is in constant starvation mode. The ALSA hardware layer starts dropping frames every 95ms. This creates a cascade effect where the main thread gets blocked waiting for audio operations.
+
+Secondary Cause:
+After a CarPlay session disconnect, the DualStreamAudioManager is released but not properly reinitialized when the session reconnects. The audio write path may be attempting to write to a released AudioTrack.
+
+Contributing Factor:
+Video buffer growth to 400+ packets indicates MediaCodec is not consuming frames fast enough. This backpressure may be blocking the main thread through MediaCodec callbacks.
+
+
+CORRELATION MATRIX
+------------------
+
+Time        Carlink Event           Logcat Event            User Observation
+10:35:14    Audio started           Format 48kHz            Normal
+10:48:35    USB close               MediaCodec reset        Disconnect
+10:49:xx    Reconnect               Codec reinit            No Audio
+10:55:52    Log stops               ANR crash               Crash
+10:56:23    New session             App restart             Auto restart
+11:14:00    Underruns 10274         ALSA drops frames       Distortion
+11:15:35    Buffer 402              ANR crash               Crash
+11:35:45    N/A                     ANR crash               Session end
+
+
+RECOMMENDATIONS
+---------------
+
+1. Add underrun recovery mechanism
+   - Monitor underrun rate per second
+   - If exceeds threshold (100 underruns/minute), pause AudioTrack
+   - Reinitialize AudioTrack with fresh buffers
+   - Resume playback
+
+2. Move audio writes off main thread
+   - Use dedicated Handler with THREAD_PRIORITY_URGENT_AUDIO
+   - Ensure writeAudio platform call does not block Flutter main thread
+   - Add timeout to audio write operations
+
+3. Fix audio reconnect path
+   - After CarPlay session reconnects, explicitly call DualStreamAudioManager.start()
+   - Verify all four AudioTracks are in STATE_PLAYING
+   - Log AudioTrack states after reconnection
+
+4. Cap video buffer size
+   - Set maximum buffer size to 50 packets
+   - When exceeded, drop oldest frames
+   - Log when frames are dropped for diagnostics
+
+5. Add health monitoring
+   - Log underrun rate every 30 seconds
+   - Log buffer fill levels periodically
+   - Alert when metrics exceed thresholds
+
+
+FILES ANALYZED
+--------------
+/log/session_3/APP_LOG/Download/carlink_20251127_103448_975.log (10.1MB)
+/log/session_3/APP_LOG/Download/carlink_20251127_105623_639.log
+/log/session_3/APP_LOG/Download/carlink_20251127_111555_075.log
+/log/session_3/ADB_LOGCAT/logcat.log
+/log/session_3/CPC200-CCPA_LOG/adapter_live_stream.log
+/log/session_3/user_observations
+
+
+ANALYSIS COMPLETED
+------------------
+Analyst: Claude Code
+Date: 2025-11-27

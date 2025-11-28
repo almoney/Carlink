@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'responsive_dialog.dart';
 
 /// Warning dialog shown before export operations to set user expectations
 class ExportWarningDialog extends StatelessWidget {
@@ -22,165 +23,54 @@ class ExportWarningDialog extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final totalSize = _getTotalSizeString();
 
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: 400,
-          minWidth: 300,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+    return ResponsiveDialog(
+      title: 'Export Verification Notice',
+      icon: Icons.warning_amber_rounded,
+      iconColor: colorScheme.onTertiaryContainer,
+      iconBackgroundColor: colorScheme.tertiaryContainer.withValues(alpha: 0.7),
+      content: [
+        // File Information
+        ResponsiveDialog.buildContentBox(
+          context: context,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              // Warning Icon
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.tertiaryContainer.withValues(alpha: 0.7),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.warning_amber_rounded,
-                  color: colorScheme.onTertiaryContainer,
-                  size: 32,
-                ),
+              ResponsiveDialog.buildInfoRow(
+                context: context,
+                label: 'Files to export:',
+                value: '${files.length} file${files.length != 1 ? 's' : ''}',
               ),
-
-              const SizedBox(height: 16),
-
-              // Title
-              Text(
-                'Export Verification Notice',
-                style: theme.textTheme.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 16),
-
-              // File Information
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Files to export:',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        Text(
-                          '${files.length} file${files.length != 1 ? 's' : ''}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurface,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Total size:',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        Text(
-                          totalSize,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurface,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Warning Message
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.tertiaryContainer.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: colorScheme.onTertiaryContainer,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Important Notice',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onTertiaryContainer,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '• Files will be sent to your chosen File Manager app\n'
-                      '• Flutter Export code cannot verify File transfers\n'
-                      '• You must manually verify files were exported\n'
-                      '• Recommended: Use Downloads or Documents folders',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onTertiaryContainer,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: onCancel ?? () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      onPressed: onProceed,
-                      icon: const Icon(Icons.share, size: 18),
-                      label: const Text('Continue Export'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 4),
+              ResponsiveDialog.buildInfoRow(
+                context: context,
+                label: 'Total size:',
+                value: totalSize,
               ),
             ],
           ),
         ),
-      ),
+
+        // Warning Message
+        ResponsiveDialog.buildWarningBox(
+          context: context,
+          title: 'Important Notice',
+          icon: Icons.info_outline,
+          message: '• Files will be sent to your chosen File Manager app\n'
+              '• Flutter Export code cannot verify File transfers\n'
+              '• You must manually verify files were exported\n'
+              '• Recommended: Use Downloads or Documents folders',
+        ),
+      ],
+      actions: [
+        TextButton(
+          onPressed: onCancel ?? () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: onProceed,
+          icon: const Icon(Icons.share, size: 18),
+          label: const Text('Continue Export'),
+        ),
+      ],
     );
   }
 

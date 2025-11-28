@@ -175,31 +175,66 @@ class SendMultiTouch extends SendableMessageWithPayload {
 }
 
 class SendAudio extends SendableMessageWithPayload {
-  final Uint16List data;
+  final Uint8List data;
+  final int decodeType;
+  final int audioType;
+  final double volume;
 
-  SendAudio(this.data) : super(MessageType.AudioData) {
+  /// Create a microphone audio message to send to the CPC200-CCPA adapter.
+  ///
+  /// Parameters match pi-carplay's known-working implementation:
+  /// - decodeType = 5 (16kHz mono) for all voice input
+  /// - audioType = 3 (Siri/voice input identifier)
+  /// - volume = 0.0
+  ///
+  /// [data] is the raw PCM audio samples (16-bit signed little-endian).
+  /// [decodeType] is the CPC200-CCPA voice format (default: 5 = 16kHz mono).
+  /// [audioType] is the stream type (default: 3 = Siri/voice input).
+  /// [volume] is the volume level (default: 0.0 per pi-carplay).
+  SendAudio(
+    this.data, {
+    this.decodeType = 5,
+    this.audioType = 3, // Siri/voice input (matches pi-carplay)
+    this.volume = 0.0, // Always 0.0 (matches pi-carplay)
+  }) : super(MessageType.AudioData) {
     logDebug(
-      'Creating audio message: ${data.length} samples (${data.lengthInBytes} bytes)',
-      tag: 'AUDIO',
+      'Creating mic audio message: ${data.length} bytes decodeType=$decodeType audioType=$audioType',
+      tag: 'MIC',
     );
+  }
+
+  /// Format raw PCM data for logging (limited to prevent excessive log size)
+  String _formatRawMicData(Uint8List data) {
+    const int maxBytes = 32;
+    final int length = data.length > maxBytes ? maxBytes : data.length;
+    final String hex = data
+        .take(length)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join(' ');
+    final String truncated =
+        data.length > maxBytes ? '...(${data.length - maxBytes} more)' : '';
+    return '[$hex]$truncated';
   }
 
   @override
   ByteData getPayload() {
     final audioData = ByteData(12)
-      ..setUint32(0, 5, Endian.little)
-      ..setFloat32(4, 0.0, Endian.little)
-      ..setUint32(8, 3, Endian.little);
+      ..setUint32(0, decodeType, Endian.little)
+      ..setFloat32(4, volume, Endian.little)
+      ..setUint32(8, audioType, Endian.little);
 
     final result = Uint8List.fromList([
       ...audioData.buffer.asUint8List(),
-      ...data.buffer.asUint8List(),
+      ...data,
     ]).buffer.asByteData();
 
+    // Log raw mic TX data similar to how RAW AUDIO RX is logged
+    final rawDataStr = _formatRawMicData(data);
     logDebug(
-      'Audio payload: header=12B data=${data.lengthInBytes}B total=${result.lengthInBytes}B',
-      tag: 'AUDIO',
+      'RAW MIC TX: Type=0x07 Len=${result.lengthInBytes} decodeType=$decodeType audioType=$audioType Data=$rawDataStr',
+      tag: 'MIC',
     );
+
     return result;
   }
 }
@@ -319,7 +354,7 @@ final DEFAULT_CONFIG = AdaptrConfig(
   nightMode: false,
   hand: HandDriveType.LHD,
   mediaDelay: 300,
-  audioTransferMode: true,
+  audioTransferMode: false,
   wifiType: '5ghz',
   micType: 'os',
   oemIconVisible: true,

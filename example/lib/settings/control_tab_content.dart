@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:carlink/carlink.dart';
-import 'package:carlink/carlink_platform_interface.dart';
 import 'package:carlink/common.dart';
 import 'package:carlink/driver/sendable.dart';
 import 'settings_tab_base.dart';
 import 'package:carlink/log.dart';
 import '../immersive_preference.dart';
+import '../device_operations.dart';
 
 /// Button severity levels for semantic color mapping
 enum _ButtonSeverity {
@@ -119,8 +119,9 @@ class _ControlTabContentState extends SettingsTabContentState<ControlTabContent>
           label: 'Reset USB Device',
           icon: Icons.usb,
           severity: _ButtonSeverity.destructive,
-          onPressed:
-              isDeviceAvailable && !isProcessing ? _restartConnection : null,
+          onPressed: isDeviceAvailable && !isProcessing && !DeviceOperations.isProcessing
+              ? _restartConnection
+              : null,
           description: 'Restart the entire connection process',
         ),
       ],
@@ -340,25 +341,27 @@ class _ControlTabContentState extends SettingsTabContentState<ControlTabContent>
     );
   }
 
-  /// Reset H264 renderer
+  /// Reset H264 renderer using shared DeviceOperations utility.
+  ///
+  /// This method delegates to DeviceOperations.resetH264Renderer() to ensure
+  /// consistent logging and behavior across the application.
   Future<void> _resetH264Renderer() async {
-    await executeOperation(
-      'Video decoder reset',
-      () async {
-        log('[CONTROL_TAB] Resetting H264 renderer');
-        await CarlinkPlatform.instance.resetH264Renderer();
-      },
+    await DeviceOperations.resetH264Renderer(
+      context: context,
+      initiatedFrom: 'Settings Control Tab',
     );
   }
 
-  /// Restart the entire connection
+  /// Restart the entire connection using shared DeviceOperations utility.
+  ///
+  /// This method delegates to DeviceOperations.restartConnection() to ensure
+  /// consistent behavior across the application (same as Main Page Reset Device button).
   Future<void> _restartConnection() async {
-    await executeOperation(
-      'Connection restart',
-      () async {
-        log('[CONTROL_TAB] Restarting connection');
-        await widget.carlink!.restart();
-      },
+    await DeviceOperations.restartConnection(
+      context: context,
+      carlink: widget.carlink,
+      successMessage: 'Connection restart completed successfully',
+      initiatedFrom: 'Settings Control Tab',
     );
   }
 

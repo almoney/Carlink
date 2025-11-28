@@ -1,0 +1,183 @@
+ANR CRASH ANALYSIS
+==================
+
+SESSION 3 ANR EVENTS
+--------------------
+ANR 1: 10:55:52 PID 13363
+ANR 2: 11:15:35 PID 13992
+ANR 3: 11:35:45 PID 14473
+
+All three ANRs occurred in com.test.fudge MainActivity.
+
+
+ANR DEFINITION
+--------------
+Android Not Responding (ANR) occurs when:
+- Main thread blocked for 5+ seconds
+- Input event not processed within 5 seconds
+- BroadcastReceiver not finished within 10 seconds
+
+
+ANR 1 ANALYSIS (10:55:52)
+-------------------------
+Context:
+- Occurred 7 minutes after disconnect at 10:48:35
+- Audio was not working after reconnect
+- No audio data logged between 10:48 and 10:55
+
+Possible cause:
+- Main thread blocked waiting for audio hardware
+- Initialization loop retrying failed audio setup
+- writeAudio calls to released AudioTrack blocking
+
+Logcat evidence:
+10:55:49.768 created ANR temporary file
+10:55:50.566 tombstoned: received crash request for pid 13363
+10:55:52.126 ANR in com.test.fudge
+
+
+ANR 2 ANALYSIS (11:15:35)
+-------------------------
+Context:
+- App restarted at 10:56:23
+- Audio working initially
+- Underruns accumulated to 10,000+
+- Video buffer spiked to 402 packets at 11:15:00
+
+Possible cause:
+- MediaCodec callback blocking main thread
+- Video buffer pressure causing decoder stall
+- Audio underrun handling on main thread
+- Combination of video and audio backpressure
+
+Logcat evidence:
+11:15:00.002 H264_RENDERER BUFFER_WARNING High buffer usage: 402 packets
+11:14:00.040 AUDIO_UNDERRUN total: 10274
+11:15:35.923 ANR in com.test.fudge
+
+
+ANR 3 ANALYSIS (11:35:45)
+-------------------------
+Context:
+- App restarted at 11:16
+- Another disconnect at 11:22
+- Same pattern as ANR 1
+
+Possible cause:
+- Same as ANR 1: post-disconnect audio state corruption
+
+
+MAIN THREAD OPERATIONS
+----------------------
+Operations that may block main thread:
+
+1. MethodChannel callbacks from Dart
+   - onReadingLoopMessage
+   - onLogMessage
+   - All execute on main thread by default
+
+2. Audio operations
+   - writeAudio platform call
+   - AudioTrack.write() if called from main thread
+   - AudioTrack.pause()/play() state changes
+
+3. Video operations
+   - MediaCodec.queueInputBuffer() callbacks
+   - Surface updates
+   - Buffer allocation
+
+4. USB operations
+   - Bulk transfer operations
+   - Device open/close
+
+
+THREAD MODEL VERIFICATION
+-------------------------
+Need to verify:
+1. Does writeAudio block on ring buffer full?
+2. Is there synchronization between Dart and Kotlin audio path?
+3. Are MediaCodec callbacks dispatched to main thread?
+4. Is there a lock shared between audio and video paths?
+
+
+LOGCAT ANR DUMP CONTENTS
+------------------------
+ANR dumps saved to:
+/data/anr/anr_2025-11-27-10-26-37-871
+/data/anr/anr_2025-11-27-10-55-49-786
+/data/anr/anr_2025-11-27-11-15-35-xxx
+/data/anr/anr_2025-11-27-11-35-45-xxx
+
+These files contain:
+- Main thread stack trace
+- All thread stack traces
+- CPU usage per process
+- Memory state
+
+Retrieving these dumps would show exact blocking point.
+
+
+RECOMMENDED INVESTIGATION
+-------------------------
+1. Pull ANR dumps from device:
+   adb pull /data/anr/
+
+2. Analyze main thread stack trace:
+   Look for:
+   - Object.wait() - waiting on lock
+   - Thread.sleep() - explicit sleep
+   - AudioTrack native methods
+   - MediaCodec native methods
+   - Binder transactions
+
+3. Check for lock contention:
+   Look for multiple threads waiting on same object
+
+4. Profile with Android Studio:
+   - CPU profiler
+   - Trace main thread operations
+   - Identify blocking calls
+
+
+PREVENTION STRATEGIES
+---------------------
+1. Move all audio operations off main thread
+   - Use Handler with dedicated Looper
+   - Or use coroutine with Dispatchers.IO
+
+2. Add timeout to blocking operations
+   - writeAudio should timeout after 100ms
+   - Return error instead of blocking indefinitely
+
+3. Implement watchdog
+   - Ping main thread periodically
+   - If no response in 3 seconds, log warning
+   - Dump thread states for debugging
+
+4. Reduce main thread work
+   - Process messages in batches
+   - Defer non-critical work
+   - Use background threads for logging
+
+
+CODE CHANGES NEEDED
+-------------------
+AudioHandler.kt:
+
+// Current (may block main thread)
+"writeAudio" -> {
+    val data = call.argument<ByteArray>("data")
+    audioManager?.write(data)  // Blocking?
+    result.success(true)
+}
+
+// Proposed (async)
+"writeAudio" -> {
+    val data = call.argument<ByteArray>("data")
+    audioHandler.post {
+        audioManager?.write(data)
+    }
+    result.success(true)
+}
+
+Where audioHandler is a Handler with URGENT_AUDIO priority looper.

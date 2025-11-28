@@ -53,6 +53,10 @@ class VideoHandler(
                 handleResetRenderer(result)
                 true
             }
+            "getCodecName" -> {
+                handleGetCodecName(result)
+                true
+            }
             else -> false
         }
 
@@ -129,5 +133,16 @@ class VideoHandler(
     private fun handleResetRenderer(result: Result) {
         val success = videoManager?.resetRenderer() ?: false
         result.success(success)
+    }
+
+    /**
+     * Gets the current codec name from the H.264 renderer.
+     *
+     * Returns the codec name (e.g., "OMX.Intel.VideoDecoder.AVC (Intel Quick Sync)")
+     * or null if the renderer is not initialized.
+     */
+    private fun handleGetCodecName(result: Result) {
+        val codecName = videoManager?.getCodecName()
+        result.success(codecName)
     }
 }

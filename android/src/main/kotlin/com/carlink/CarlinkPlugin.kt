@@ -32,10 +32,13 @@ package com.carlink
  */
 import android.content.Context
 import android.util.Log
+import com.carlink.handlers.AudioHandler
 import com.carlink.handlers.BulkTransferCallbacks
 import com.carlink.handlers.BulkTransferHandler
 import com.carlink.handlers.DisplayMetricsHandler
+import com.carlink.handlers.MediaSessionHandler
 import com.carlink.handlers.MethodCallDispatcher
+import com.carlink.handlers.MicrophoneHandler
 import com.carlink.handlers.UsbDeviceHandler
 import com.carlink.handlers.VideoHandler
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -53,6 +56,9 @@ class CarlinkPlugin :
     private var videoManager: VideoTextureManager? = null
     private var usbDeviceManager: UsbDeviceManager? = null
     private var bulkTransferManager: BulkTransferManager? = null
+    private var dualAudioManager: DualStreamAudioManager? = null
+    private var microphoneManager: MicrophoneCaptureManager? = null
+    private var mediaSessionManager: MediaSessionManager? = null
 
     // Method call dispatcher and handlers
     private var methodCallDispatcher: MethodCallDispatcher? = null
@@ -116,6 +122,46 @@ class CarlinkPlugin :
             )
         log("[PLUGIN] VideoTextureManager initialized")
 
+        // Initialize dual-stream audio manager (supports Media + Navigation)
+        dualAudioManager = DualStreamAudioManager(logCallback)
+        log("[PLUGIN] DualStreamAudioManager initialized")
+
+        // Initialize microphone capture manager (supports Siri/Phone calls)
+        microphoneManager = MicrophoneCaptureManager(context, logCallback)
+        log("[PLUGIN] MicrophoneCaptureManager initialized")
+
+        // Initialize MediaSession manager (AAOS media source integration)
+        mediaSessionManager = MediaSessionManager(context, logCallback).also { manager ->
+            manager.initialize()
+
+            // Set up callback for media control events from AAOS/steering wheel
+            manager.setMediaControlCallback(object : MediaSessionManager.MediaControlCallback {
+                override fun onPlay() {
+                    safeInvokeMethod("onMediaControlPlay", null)
+                }
+
+                override fun onPause() {
+                    safeInvokeMethod("onMediaControlPause", null)
+                }
+
+                override fun onStop() {
+                    safeInvokeMethod("onMediaControlStop", null)
+                }
+
+                override fun onSkipToNext() {
+                    safeInvokeMethod("onMediaControlNext", null)
+                }
+
+                override fun onSkipToPrevious() {
+                    safeInvokeMethod("onMediaControlPrevious", null)
+                }
+            })
+
+            // Share session token with MediaBrowserService
+            CarlinkMediaBrowserService.mediaSessionToken = manager.getSessionToken()
+        }
+        log("[PLUGIN] MediaSessionManager initialized")
+
         // Initialize method call handlers and dispatcher
         val displayHandler = DisplayMetricsHandler(context, logCallback)
         val videoHandler = VideoHandler(videoManager, logCallback)
@@ -129,6 +175,9 @@ class CarlinkPlugin :
                 // BulkTransferCallbacks
                 this,
             )
+        val audioHandler = AudioHandler(dualAudioManager, logCallback)
+        val microphoneHandler = MicrophoneHandler(microphoneManager, logCallback)
+        val mediaSessionHandler = MediaSessionHandler(mediaSessionManager, logCallback)
 
         methodCallDispatcher =
             MethodCallDispatcher(
@@ -136,6 +185,9 @@ class CarlinkPlugin :
                 videoHandler,
                 usbDeviceHandler,
                 bulkTransferHandler,
+                audioHandler,
+                microphoneHandler,
+                mediaSessionHandler,
             )
 
         channel.setMethodCallHandler(methodCallDispatcher)
@@ -178,6 +230,34 @@ class CarlinkPlugin :
         // Cleanup bulk transfer manager
         bulkTransferManager = null
         log("[PLUGIN] BulkTransferManager cleaned up during plugin detachment")
+
+        // Cleanup dual-stream audio manager
+        try {
+            dualAudioManager?.release()
+            dualAudioManager = null
+            log("[PLUGIN] DualStreamAudioManager cleaned up during plugin detachment")
+        } catch (e: IllegalStateException) {
+            log("[PLUGIN] AudioTrack in invalid state during cleanup: ${e.message}")
+        }
+
+        // Cleanup microphone capture manager
+        try {
+            microphoneManager?.release()
+            microphoneManager = null
+            log("[PLUGIN] MicrophoneCaptureManager cleaned up during plugin detachment")
+        } catch (e: IllegalStateException) {
+            log("[PLUGIN] AudioRecord in invalid state during cleanup: ${e.message}")
+        }
+
+        // Cleanup MediaSession manager
+        try {
+            CarlinkMediaBrowserService.mediaSessionToken = null
+            mediaSessionManager?.release()
+            mediaSessionManager = null
+            log("[PLUGIN] MediaSessionManager cleaned up during plugin detachment")
+        } catch (e: Exception) {
+            log("[PLUGIN] MediaSession error during cleanup: ${e.message}")
+        }
 
         // Cleanup video texture resources using manager
         try {
@@ -370,6 +450,12 @@ class CarlinkPlugin :
 
             // Clear buffer pool to free memory
             clearBufferPool()
+
+            // Reset audio playback
+            dualAudioManager?.release()
+
+            // Stop microphone capture
+            microphoneManager?.stop()
 
             // Reset video renderer using manager
             videoManager?.performEmergencyCleanup()

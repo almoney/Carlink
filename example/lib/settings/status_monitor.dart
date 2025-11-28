@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:carlink/carlink.dart';
+import 'package:carlink/carlink_platform_interface.dart';
 import 'package:carlink/driver/readable.dart';
 import 'settings_enums.dart';
 import 'package:carlink/log.dart';
@@ -42,6 +43,9 @@ class AdapterStatusMonitor extends ChangeNotifier {
 
   /// Polling interval for status updates (in milliseconds)
   static const int _pollingIntervalMs = 500;
+
+  /// Cached codec name from native layer
+  String? _detectedCodecName;
 
   /// Current status information
   AdapterStatusInfo get currentStatus => _currentStatus;
@@ -129,11 +133,38 @@ class AdapterStatusMonitor extends ChangeNotifier {
         _updateStatus(updatedStatus);
       }
 
+      // Fetch codec name from native layer if not yet detected
+      if (_detectedCodecName == null) {
+        _fetchCodecName();
+      }
+
       // Note: Additional status messages (0x02, 0xCC, 0x14, 0x19) would be
       // processed here when the Carlink class provides access to them.
       // For now, we derive what we can from the available CarlinkState.
     } catch (e) {
       logError('[STATUS_MONITOR] Error polling status: $e');
+    }
+  }
+
+  /// Fetches codec name from native layer and updates video stream info
+  Future<void> _fetchCodecName() async {
+    try {
+      final codecName = await CarlinkPlatform.instance.getCodecName();
+      if (codecName != null && codecName != _detectedCodecName) {
+        _detectedCodecName = codecName;
+        log('[STATUS_MONITOR] Detected codec: $codecName');
+
+        // Update video stream info with detected codec if we have video info
+        final currentVideo = _currentStatus.videoStream;
+        if (currentVideo != null) {
+          final updatedVideo = currentVideo.copyWith(codec: codecName);
+          final updatedStatus =
+              _currentStatus.copyWith(videoStream: updatedVideo);
+          _updateStatus(updatedStatus);
+        }
+      }
+    } catch (e) {
+      logError('[STATUS_MONITOR] Error fetching codec name: $e');
     }
   }
 
@@ -173,8 +204,9 @@ class AdapterStatusMonitor extends ChangeNotifier {
 
     // Calculate FPS from the time span of recent frames
     final timeSpan = _videoFrameTimes.last.difference(_videoFrameTimes.first);
-    if (timeSpan.inMilliseconds < 100)
+    if (timeSpan.inMilliseconds < 100) {
       return null; // Avoid division by very small numbers
+    }
 
     final fps =
         (_videoFrameTimes.length - 1) * 1000.0 / timeSpan.inMilliseconds;
@@ -207,10 +239,8 @@ class AdapterStatusMonitor extends ChangeNotifier {
           receivedWidth: width,
           receivedHeight: height,
           frameRate: currentVideo.frameRate ?? actualFps,
-          // Update codec with more specific info when available
-          codec: currentVideo.codec == 'H.264'
-              ? 'Intel Quick Sync H.264'
-              : currentVideo.codec,
+          // Use detected codec name from native layer, or preserve existing
+          codec: _detectedCodecName ?? currentVideo.codec,
           lastVideoUpdate: now,
           totalFrames: _totalVideoFrames,
         ) ??
@@ -221,7 +251,7 @@ class AdapterStatusMonitor extends ChangeNotifier {
           receivedWidth: width,
           receivedHeight: height,
           frameRate: actualFps,
-          codec: 'Intel Quick Sync H.264',
+          codec: _detectedCodecName ?? 'H.264',
           lastVideoUpdate: now,
           totalFrames: _totalVideoFrames,
         );
@@ -347,8 +377,8 @@ class AdapterStatusMonitor extends ChangeNotifier {
           receivedWidth: null, // Will be populated when VideoData is received
           receivedHeight: null, // Will be populated when VideoData is received
           frameRate: message.fps.toDouble(),
-          codec:
-              'H.264', // Default codec type, will be updated when video processing starts
+          // Use detected codec if available, otherwise default to H.264 placeholder
+          codec: _detectedCodecName ?? 'H.264',
           lastVideoUpdate: DateTime.now(),
           totalFrames: 0,
         );

@@ -34,6 +34,7 @@ final Map<String, bool> _tagFilters = <String, bool>{
   'USB_RAW': false, // Raw USB messages (excluding video/audio)
   'VIDEO': false, // Video data and processing
   'AUDIO': false, // Audio data and processing
+  'MIC': false, // Microphone capture and transmission (raw mic TX data)
   'H264_RENDERER': true, // H264 video renderer operations
   'PLATFORM': true, // Platform interface layer
   'SERIALIZE': true, // Message serialization
@@ -330,8 +331,8 @@ void setLogPreset(LogPreset preset) {
       _logLevels[LogLevel.warn] = true;
       _logLevels[LogLevel.error] = true;
       _tagFilters.updateAll((key, value) => false);
-      // Enable only audio-related logging (including raw audio messages)
-      setTagsEnabled(['AUDIO', 'USB', 'PLATFORM', 'CONFIG'], true);
+      // Enable only audio-related logging (including raw audio RX and mic TX messages)
+      setTagsEnabled(['AUDIO', 'MIC', 'USB', 'PLATFORM', 'CONFIG'], true);
       break;
   }
 }

@@ -1,0 +1,169 @@
+SIRI TONE MISSING INVESTIGATION
+===============================
+
+PROBLEM STATEMENT
+-----------------
+Siri tone (the audio cue from iPhone when Siri activates) is heard on first invocation but not on subsequent invocations within the same CarPlay session.
+
+
+FIRST SIRI INVOCATION (14:48:59) - WORKING
+------------------------------------------
+Step-by-step log trace:
+
+14:48:59.597 > AUDIO RAW RX: Type=0x07 Len=13 Data=AudioData [08]
+              ^^ AudioSiriStart command received from adapter
+
+14:48:59.598 > AudioSiriStart received - triggering mic capture
+
+14:48:59.640 > Microphone capture started: decodeType=5 audioType=3
+
+14:48:59.777 > AUDIO RAW RX: Type=0x07 Len=13 Data=AudioData [03]
+              ^^ AudioInputConfig command
+
+14:48:59.779 > AUDIO RAW RX: Type=0x07 Len=13 Data=AudioData [01]
+              ^^ AudioOutputStart command - triggers audio playback init
+
+14:48:59.956 > AUDIO RAW RX: Type=0x07 Len=972 Data=AudioData...
+              ^^ First actual audio data (Siri tone) arrives
+
+14:48:59.956 > Initializing audio: decodeType=5
+14:48:59.958 > Audio initialized: true
+              ^^ DualStreamAudioManager created and initialized
+
+14:48:59.983 > Created MEDIA AudioTrack: 16000Hz 1ch buffer=6480B usage=1
+              ^^ AudioTrack created with correct parameters
+
+14:49:00.056 > Media pre-fill complete: 120ms buffered, starting playback
+              ^^ Playback starts after buffer has enough data
+
+14:49:00.108 onwards - Audio data continues arriving
+              Data contains Siri tone waveform (non-zero samples visible)
+
+Result: Siri tone HEARD by user
+
+
+FIRST SIRI SESSION ENDS (14:49:06)
+----------------------------------
+14:49:06.403 > AudioSiriStop received - stopping mic capture
+
+14:49:06.435 > Audio stream stopped: MEDIA
+14:49:06.435 > Media track paused - stream ended
+              ^^ AudioTrack.pause() called
+
+14:49:06.441 > Audio stream stopped: VOICE/SIRI
+
+State after: AudioTrack exists but is PAUSED, ring buffer is drained
+
+
+SECOND SIRI INVOCATION (14:49:53) - NOT WORKING
+-----------------------------------------------
+Step-by-step log trace:
+
+14:49:53.158 > AUDIO RAW RX: Type=0x07 Len=13 Data=AudioData [08]
+              ^^ AudioSiriStart command received
+
+14:49:53.159 > AudioSiriStart received - triggering mic capture
+
+14:49:53.182 > Microphone capture started: decodeType=5 audioType=3
+              ^^ Mic capture works
+
+14:49:53.305 > AUDIO RAW RX: Type=0x07 Len=13 Data=AudioData [03]
+              ^^ AudioInputConfig
+
+14:49:53.310 > AUDIO RAW RX: Type=0x07 Len=13 Data=AudioData [01]
+              ^^ AudioOutputStart
+
+              *** MISSING: No "Initializing audio" log ***
+              *** MISSING: No "Created MEDIA AudioTrack" log ***
+              *** MISSING: No "pre-fill complete" log ***
+
+14:49:53.490 > AUDIO RAW RX: Type=0x07 Len=972 Data=AudioData...
+              ^^ Audio data arrives - this IS the Siri tone!
+              Data contains actual waveform: [ff ff ff ff... then real samples]
+
+14:49:53.491 > AUDIO_STATS: fill=0ms/0.0% written=26880 read=26880 overflow=0
+              ^^ Buffer empty at start
+
+...audio continues arriving...
+
+14:50:03.509 > AUDIO_STATS: fill=499ms/99.993744% overflow=139
+              ^^ Buffer now FULL (500ms), 139 packets OVERFLOWED (dropped)
+
+Result: Audio data arrived but was NEVER PLAYED - Siri tone NOT heard
+
+
+WHY AUDIO NOT INITIALIZED ON SECOND SIRI
+----------------------------------------
+The Dart code in carlink.dart has logic like:
+
+if (!_audioInitialized) {
+    await _initializeAudio();
+    _audioInitialized = true;
+}
+
+After first Siri:
+- _audioInitialized = true
+- AudioTrack exists (but paused)
+
+When second Siri starts:
+- _audioInitialized is still true
+- _initializeAudio() is NOT called
+- Paused AudioTrack is never resumed
+
+
+AUDIO DATA PROOF - DATA WAS ARRIVING
+------------------------------------
+Second Siri audio data (14:49:53) shows non-zero samples:
+
+14:49:53.577 > AUDIO RAW RX: Len=972 Data=[01 f4 33 f1 4c ed 78 e8...]
+              ^^ These are NOT zeros - this is actual Siri tone audio!
+
+14:49:53.642 > AUDIO RAW RX: Len=972 Data=[f0 07 6b 10 f0 18 9c 21...]
+              ^^ More non-zero audio data
+
+The exact same audio pattern seen in first Siri (which worked):
+14:49:00.108 > AUDIO RAW RX: Len=972 Data=[f0 07 6b 10 f0 18 9c 21...]
+
+Audio data is identical - proving adapter is sending correct data both times.
+
+
+FIX REQUIRED
+------------
+Location: DualStreamAudioManager.kt or AudioHandler.kt
+
+Current behavior:
+- AudioOutputStart only initializes if not initialized
+- Does not check if track is paused
+
+Required behavior:
+- Check if AudioTrack is paused
+- If paused, resume it with audioTrack.play()
+- Clear buffer state if needed
+
+Option A - Resume paused track:
+fun handleAudioWrite(...) {
+    if (mediaTrack?.playState == AudioTrack.PLAYSTATE_PAUSED) {
+        mediaTrack?.play()
+    }
+    // ... existing write logic
+}
+
+Option B - Reinitialize on AudioOutputStart:
+fun handleAudioOutputStart() {
+    if (mediaTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
+        reinitializeTrack(...)
+    }
+}
+
+
+TEST TO VERIFY FIX
+------------------
+1. Start CarPlay session
+2. Invoke Siri, speak, let it complete
+3. Wait 10 seconds
+4. Invoke Siri again
+5. Verify Siri tone is heard on second invocation
+6. Repeat steps 3-5 multiple times
+
+Expected: Siri tone heard on all invocations
+Current: Only heard on first invocation

@@ -1,0 +1,159 @@
+MICROPHONE PERMISSION INVESTIGATION
+====================================
+
+PROBLEM STATEMENT
+-----------------
+First 4 Siri invocations failed because microphone permission was not granted.
+User discovered issue at 4:33-4:34 PM and manually granted permission.
+
+
+LOG EVIDENCE
+------------
+Siri 1 (16:30:33):
+16:30:33.159 > [MIC] _startMicrophoneCapture called: decodeType=5 audioType=3
+16:30:33.159 > [MIC] State: _microphoneEnabled=true _isMicrophoneCapturing=false
+16:30:33.159 > [MIC] Checking microphone permission...
+16:30:33.161 > [MIC] Permission check result: false
+16:30:33.161 > [MIC] Microphone permission not granted
+
+Siri 2 (16:31:32):
+16:31:32.345 > [MIC] Checking microphone permission...
+16:31:32.346 > [MIC] Permission check result: false
+16:31:32.346 > [MIC] Microphone permission not granted
+
+Siri 3 (16:32:32):
+16:32:32.186 > [MIC] Checking microphone permission...
+16:32:32.187 > [MIC] Permission check result: false
+16:32:32.187 > [MIC] Microphone permission not granted
+
+Siri 4 (16:33:31):
+16:33:31.747 > [MIC] Checking microphone permission...
+16:33:31.748 > [MIC] Permission check result: false
+16:33:31.748 > [MIC] Microphone permission not granted
+
+After Permission Granted (16:35:13):
+16:35:13.274 > [MIC] Checking microphone permission...
+16:35:13.278 > [MIC] Permission check result: true  <-- NOW GRANTED
+16:35:13.278 > [MIC] Calling platform startMicrophoneCapture...
+16:35:13.315 > [MIC] Microphone capture started: true
+
+
+ADAPTER BEHAVIOR
+----------------
+Adapter was correctly sending mic start commands during all Siri sessions:
+
+16:30:32.606 > _SendPhoneCommandToCar: StartRecordMic(1)
+16:30:32.607 > Start record Audio!!
+
+16:31:31.762 > _SendPhoneCommandToCar: StartRecordMic(1)
+16:31:31.763 > Start record Audio!!
+
+The adapter was requesting mic recording, but app couldn't start capture.
+
+
+IMPACT
+------
+1. Siri heard user pressing activation button (tone played)
+2. Siri waited for voice input
+3. No mic data sent because permission denied
+4. Siri timed out after ~7 seconds
+5. User voice prompt never processed
+
+
+DART CODE BEHAVIOR
+------------------
+From logs, the Dart code flow is:
+
+void _startMicrophoneCapture(int decodeType, int audioType) {
+    // Check state
+    log('[MIC] State: _microphoneEnabled=$_microphoneEnabled ...');
+
+    // Check permission
+    log('[MIC] Checking microphone permission...');
+    bool hasPermission = await Permission.microphone.isGranted;
+    log('[MIC] Permission check result: $hasPermission');
+
+    if (!hasPermission) {
+        log('[MIC] Microphone permission not granted');
+        return;  // <-- EXITS WITHOUT STARTING MIC
+    }
+
+    // Start capture
+    log('[MIC] Calling platform startMicrophoneCapture...');
+}
+
+
+WHY PERMISSION WASN'T GRANTED
+-----------------------------
+Possible reasons:
+1. App never requested permission during install/first run
+2. User denied permission previously and forgot
+3. Permission request dialog was dismissed
+4. Android permission settings were not configured for this app
+
+
+FIX REQUIRED
+------------
+Location: Dart code (lib/carlink.dart or similar)
+
+Add proactive permission request during app initialization:
+
+void _initializeApp() async {
+    // Request microphone permission early
+    if (!await Permission.microphone.isGranted) {
+        PermissionStatus status = await Permission.microphone.request();
+        if (status.isDenied) {
+            // Show rationale dialog
+            _showMicrophoneRationaleDialog();
+        }
+    }
+}
+
+void _showMicrophoneRationaleDialog() {
+    showDialog(
+        title: 'Microphone Required',
+        content: 'Siri and voice commands require microphone access. '
+                 'Please grant microphone permission in Settings.',
+        buttons: [
+            Button('Open Settings', () => openAppSettings()),
+            Button('Cancel', () => {}),
+        ],
+    );
+}
+
+Also add visual indicator when Siri is invoked without mic permission:
+
+void _onSiriStart() {
+    if (!await Permission.microphone.isGranted) {
+        _showToast('Microphone permission required for Siri');
+        return;
+    }
+    // Proceed with mic capture
+}
+
+
+TEST VERIFICATION
+-----------------
+1. Uninstall app
+2. Reinstall app
+3. On first launch, verify permission request dialog appears
+4. Grant permission
+5. Connect to CarPlay
+6. Invoke Siri
+7. Verify mic capture starts
+
+Alternative test (denied permission):
+1. Deny microphone permission
+2. Invoke Siri
+3. Verify user-friendly message appears
+4. Verify app doesn't crash
+
+
+ANDROID MANIFEST CHECK
+----------------------
+Verify AndroidManifest.xml has:
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+For Android 10+, may also need:
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

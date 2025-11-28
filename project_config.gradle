@@ -9,10 +9,10 @@ ext {
     // -----------------------------------------------------------------------------
     // PLAY STORE RELEASE CONFIGURATION (Update before each release)
     // -----------------------------------------------------------------------------
-    myApplicationId = "com.your.app"      // Package name (com.your.app)
-    myApplicationName = "Carlink"            // App display name
-    myVersionCode = 1                       // Play Store version code (increment for each release)
-    myVersionName = "1.0.0"                  // User-visible version (semantic versioning)
+    myApplicationId = "com.test.fudge"      // Package name (com.your.app)
+    myApplicationName = "carlink"            // App display name
+    myVersionCode = 87                       // Play Store version code (increment for each release)
+    myVersionName = "2.0.0"                  // User-visible version (semantic versioning)
 
     // -----------------------------------------------------------------------------
     // ANDROID SDK LEVELS (Stable - change rarely)
@@ -25,7 +25,7 @@ ext {
     // PLUGIN LIBRARY CONFIGURATION (Stable - change on major plugin updates)
     // -----------------------------------------------------------------------------
     myLibraryGroup = "com.carlink"           // Plugin package namespace
-    myLibraryVersion = "1.0.0"               // Plugin library version
+    myLibraryVersion = myVersionName        // Plugin library version
 
     // -----------------------------------------------------------------------------
     // BUILD TOOLS VERSIONS (Update when upgrading toolchain)

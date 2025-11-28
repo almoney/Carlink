@@ -369,4 +369,12 @@ class VideoTextureManager(
             "textureId" to (currentTextureId ?: -1L),
             "isActive" to isRendererActive(),
         )
+
+    /**
+     * Gets the current codec name from the H.264 renderer.
+     *
+     * @return Codec name or null if renderer not initialized
+     */
+    @Synchronized
+    fun getCodecName(): String? = h264Renderer?.codecName
 }

@@ -1,0 +1,114 @@
+BUFFER OVERFLOW ANALYSIS
+========================
+
+PROBLEM
+-------
+Audio ring buffer fills to 100% capacity and overflows accumulate throughout session. Data written to buffer is not being read because AudioTrack playback is paused.
+
+
+BUFFER STATS PROGRESSION
+------------------------
+Time         Fill Level    Overflow Count    Notes
+14:49:06     drained       0                 First Siri ended
+14:49:53     0ms/0.0%      0                 Second Siri starts
+14:50:03     499ms/99.99%  139               Buffer full in 10 seconds
+14:51:16     499ms/99.99%  185               +46 overflows
+14:51:58     499ms/99.99%  213               +28 overflows
+14:52:12     499ms/99.99%  378               +165 overflows (burst)
+14:52:23     499ms/99.99%  507               +129 overflows
+14:52:39     499ms/99.99%  521               +14 overflows
+14:55:28     499ms/99.99%  568               +47 overflows
+
+Total overflows by end of session: 568 packets dropped
+
+
+BUFFER CONFIGURATION
+--------------------
+Media stream buffer: 500ms (AudioRingBuffer.forMedia())
+Sample rate: 16000 Hz (Siri)
+Channels: 1 (mono)
+Frame size: 2 bytes (16-bit PCM)
+Buffer capacity: 16000 * 0.5 * 1 * 2 = 16000 bytes
+
+Each audio packet: 960 bytes (480 samples at 16kHz = 30ms)
+Buffer can hold: ~16 packets = ~500ms (matches logged fill level)
+
+
+WHY BUFFER OVERFLOWS
+--------------------
+Audio data path:
+1. Adapter sends audio data via USB
+2. Dart reads USB data
+3. Dart calls platform writeAudio()
+4. Kotlin AudioHandler receives data
+5. DualStreamAudioManager.write() adds to ring buffer
+6. AudioPlaybackThread.run() reads from ring buffer (IF TRACK PLAYING)
+7. AudioTrack.write() sends to hardware
+
+Step 6 is NOT happening because:
+- mediaTrack.playState == PLAYSTATE_PAUSED
+- Playback thread loop checks track state before reading
+- If not playing, thread skips read operation
+
+Code in DualStreamAudioManager (playback thread loop):
+while (!stop) {
+    if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+        bytesRead = ringBuffer.read(buffer)
+        track.write(buffer, 0, bytesRead)
+    } else {
+        // Track not playing - skip reading
+        Thread.sleep(10)
+    }
+}
+
+
+DATA ARRIVAL RATE
+-----------------
+Audio packets arrive approximately every 30ms during Siri session.
+30ms * 568 overflows = 17 seconds of discarded audio over session lifetime.
+
+
+IMPACT OF OVERFLOW
+------------------
+1. Audio data lost - Siri tone not heard
+2. Buffer remains permanently full until session ends
+3. Memory stable (ring buffer reuses same memory)
+4. No crash, but functionality broken
+
+
+UNDERFLOW VS OVERFLOW
+---------------------
+Session 3 had UNDERFLOW problem (buffer draining faster than filling)
+Session 4 has OVERFLOW problem (buffer filling but not draining)
+
+Both caused by same root issue:
+- Session 3: AudioTrack released/not reinitialized
+- Session 4: AudioTrack paused and not resumed
+
+Both result in audio not being heard.
+
+
+FIX
+---
+The overflow will resolve automatically when AudioTrack is resumed because:
+1. Playback thread will start reading from buffer
+2. Buffer will drain at playback rate
+3. Overflow count will stop increasing
+
+No separate buffer fix needed - resume AudioTrack and overflow stops.
+
+
+MONITORING RECOMMENDATION
+-------------------------
+Add periodic health check logging:
+
+Every 10 seconds during active session:
+- Log buffer fill percentage
+- Log overflow count delta since last check
+- If overflow delta > 0, log WARNING
+- If fill > 90% for 5+ seconds, log ERROR and attempt recovery
+
+Recovery action:
+- Check AudioTrack state
+- If paused/stopped, resume
+- If released, reinitialize

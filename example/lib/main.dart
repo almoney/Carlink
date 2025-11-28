@@ -12,6 +12,8 @@ import 'package:carlink_example/immersive_preference.dart';
 import 'package:carlink_example/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,7 +59,33 @@ void main() async {
   await Future.delayed(const Duration(milliseconds: 2000));
   logInfo('[STARTUP] System stabilized, launching app UI', tag: 'MAIN');
 
+  // Request microphone permission on first launch
+  await _requestMicrophonePermissionOnFirstLaunch();
+
   runApp(const MainApp());
+}
+
+const String _kMicPermissionRequestedKey = 'mic_permission_requested';
+
+/// Request microphone permission on first launch only.
+/// Uses SharedPreferences to track whether we've already asked.
+Future<void> _requestMicrophonePermissionOnFirstLaunch() async {
+  final prefs = await SharedPreferences.getInstance();
+  final alreadyRequested = prefs.getBool(_kMicPermissionRequestedKey) ?? false;
+
+  if (alreadyRequested) {
+    logInfo('[PERMISSION] Microphone permission already requested previously',
+        tag: 'MAIN');
+    return;
+  }
+
+  logInfo('[PERMISSION] First launch - requesting microphone permission',
+      tag: 'MAIN');
+
+  final status = await Permission.microphone.request();
+  await prefs.setBool(_kMicPermissionRequestedKey, true);
+
+  logInfo('[PERMISSION] Microphone permission result: $status', tag: 'MAIN');
 }
 
 class MainApp extends StatefulWidget {

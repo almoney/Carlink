@@ -1,0 +1,134 @@
+NAVIGATION AUDIO DATA FLOW ANALYSIS
+====================================
+
+NAVIGATION AUDIO FORMAT
+-----------------------
+Packet size: 11532 bytes
+Header: 12 bytes
+Audio payload: 11520 bytes
+
+Sample rate: 48000 Hz (stereo nav audio, differs from 16000Hz Siri)
+Channels: 2 (stereo)
+Bit depth: 16-bit PCM
+Samples per packet: 11520 / 2 / 2 = 2880 samples per channel
+Duration per packet: 2880 / 48000 = 60ms
+
+Packet rate: ~16.6 packets per second
+
+
+PACKET HEADER STRUCTURE
+-----------------------
+Bytes 0-3:   Stream type (04 00 00 00 = Media/Nav stream)
+Bytes 4-7:   Reserved (00 00 00 00)
+Bytes 8-11:  Audio type (02 00 00 00 = Navigation)
+Bytes 12+:   PCM audio data
+
+
+EXAMPLE PACKET ANALYSIS
+-----------------------
+16:14:26.318 > RAW AUDIO RX: Type=0x07 Len=11532
+Data=[04 00 00 00 00 00 00 00 02 00 00 00 fe ff fe ff fd ff fd ff...]
+
+Breakdown:
+04 00 00 00 = Stream type 4 (Media/Nav)
+00 00 00 00 = Reserved
+02 00 00 00 = Audio type 2 (Navigation)
+fe ff fe ff = First stereo sample pair (-2, -2) - nearly silent
+fd ff fd ff = Second stereo sample pair (-3, -3)
+
+
+AUDIO DATA QUALITY
+------------------
+Early packets had zero-filled data (silence before voice):
+16:14:26.138 > AUDIO_FILTER: Skipped 1 zero-filled packets
+
+Actual voice data arrived shortly after:
+16:14:26.318 > Data=[fe ff fe ff fd ff fd ff fc ff fc ff...]
+16:14:26.559 > Data=[9f fd 9f fd e4 fe e4 fe e4 ff e4 ff...]
+
+The non-zero samples confirm:
+1. Adapter was sending real audio
+2. USB transfer was working
+3. Dart layer received the data correctly
+
+
+EXPECTED AUDIO PLAYBACK PATH
+----------------------------
+Working scenario (not observed in Session 5):
+
+1. Dart receives audio packet
+2. Dart calls platform.writeAudio(streamType=NAVIGATION, data)
+3. Kotlin receives writeAudio call
+4. DualStreamAudioManager.write(NAV, data) called
+5. AudioRingBuffer.write(data) enqueues audio
+6. AudioPlaybackThread reads from buffer
+7. AudioTrack.write() sends to Android audio system
+8. Audio routed to speakers via AAOS routing
+
+What happened in Session 5:
+
+1. Dart receives audio packet   <-- WORKING
+2. Dart calls platform.writeAudio() <-- NOT CALLED (manager null)
+3. (Steps 3-8 never happen)
+
+
+NAV AUDIO VS SIRI AUDIO
+-----------------------
+Property          Nav Audio       Siri Audio
+Sample rate       48000 Hz        16000 Hz
+Channels          2 (stereo)      1 (mono)
+Packet size       11532 bytes     972 bytes
+Audio type ID     2               3
+Stream context    NAVIGATION      VOICE/SIRI
+AAOS routing      Navigation bus  Voice bus
+
+
+AUDIO CONTEXT ROUTING
+---------------------
+When AudioNaviStart received:
+16:14:25.929 > [AUDIO_CONTEXT] Stream context changed to NAVIGATION (2)
+
+This sets the intended audio routing context.
+AAOS would route to navigation audio output if AudioTrack was created.
+
+When AudioNaviStop received:
+16:14:27.635 > [AUDIO_CONTEXT] Stream context reverted to MEDIA (1)
+
+
+DUCKING BEHAVIOR
+----------------
+Nav audio triggers media ducking:
+
+16:14:25.928 > Setting audio ducking: 0.20000001788139343
+16:14:25.929 > Media ducked to 20%
+
+This worked correctly - media volume was reduced.
+Proves audio focus/ducking code path is separate from playback.
+
+16:14:27.631 > Setting audio ducking: 1.0
+16:14:27.632 > Media volume restored to 100%
+
+Ducking was correctly removed when nav ended.
+
+
+ZERO-FILLED PACKET FILTERING
+----------------------------
+The app has a filter for empty audio packets:
+
+16:14:26.138 > AUDIO_FILTER: Skipped 1 zero-filled packets
+
+This is intentional behavior to skip initial silence.
+But in Session 5, even real audio packets were ignored because no AudioTrack existed.
+
+
+TOTAL AUDIO DATA RECEIVED (not played)
+--------------------------------------
+Estimated audio received during Session 5:
+
+Nav event 1 (16:14:25 - 16:14:27): ~2 seconds = ~33 packets
+Nav event 2 (16:16:02 - 16:16:04): ~2 seconds = ~33 packets
+Nav event 3 (16:16:04 - 16:16:06): ~2 seconds = ~33 packets
+Nav event 4 (16:19:20 - 16:19:21): ~1.5 seconds = ~25 packets
+Nav event 5 (16:19:24 - 16:19:26): ~2 seconds = ~33 packets
+
+Total: ~157 packets = ~9.4 seconds of navigation audio LOST

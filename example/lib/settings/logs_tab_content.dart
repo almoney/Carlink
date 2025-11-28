@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:carlink/log.dart';
 import 'enhanced_sharing.dart';
 import 'export_warning_dialog.dart';
 import 'delete_confirmation_dialog.dart';
+import 'debug_apk_warning_dialog.dart';
 import 'settings_tab_base.dart';
 import 'logging_preferences.dart';
 import 'dart:io';
@@ -29,6 +31,7 @@ class _LogsTabContentState extends SettingsTabContentState<LogsTabContent>
   List<File> _logFiles = [];
   final Set<String> _selectedLogFiles = {};
   LogPreset _selectedLogLevel = LogPreset.silent;
+  bool _debugWarningShown = false;
 
   @override
   Widget buildTabContent(BuildContext context) {
@@ -855,6 +858,12 @@ class _LogsTabContentState extends SettingsTabContentState<LogsTabContent>
       final isFirstLaunch = await LoggingPreferences.instance.isFirstLaunch();
 
       if (mounted) {
+        // Show debug APK warning dialog if in debug mode
+        if (kDebugMode && !_debugWarningShown) {
+          _debugWarningShown = true;
+          await _showDebugApkWarning();
+        }
+
         setState(() {
           _selectedLogLevel = savedLevel;
           _fileLoggingEnabled = savedEnabled;
@@ -863,16 +872,24 @@ class _LogsTabContentState extends SettingsTabContentState<LogsTabContent>
         log('Loaded preferences: level=${savedLevel.name}, enabled=$savedEnabled, firstLaunch=$isFirstLaunch',
             tag: 'LOGS_TAB');
 
-        // Only auto-enable on first launch if logging is not already configured
-        if (isFirstLaunch && !savedEnabled) {
-          log('First launch detected - enabling logging with Normal preset',
+        // In debug mode: enforce Silent preset and disable file logging
+        if (kDebugMode) {
+          log('Debug APK detected - enforcing Silent preset and disabling file logging',
               tag: 'LOGS_TAB');
-          await _enableLoggingByDefault();
+          await _enforceDebugApkSettings();
         } else {
-          // Apply saved preferences
-          if (savedEnabled) {
-            setLogPreset(savedLevel);
-            await setFileLoggingEnabled(true);
+          // Release mode: normal behavior
+          // Only auto-enable on first launch if logging is not already configured
+          if (isFirstLaunch && !savedEnabled) {
+            log('First launch detected - enabling logging with Normal preset',
+                tag: 'LOGS_TAB');
+            await _enableLoggingByDefault();
+          } else {
+            // Apply saved preferences
+            if (savedEnabled) {
+              setLogPreset(savedLevel);
+              await setFileLoggingEnabled(true);
+            }
           }
         }
 
@@ -887,6 +904,29 @@ class _LogsTabContentState extends SettingsTabContentState<LogsTabContent>
         await _loadFileLoggingStatus();
         await _loadLogFiles();
       }
+    }
+  }
+
+  /// Show the debug APK warning dialog
+  Future<void> _showDebugApkWarning() async {
+    if (!mounted) return;
+    await DebugApkWarningDialog.show(context);
+  }
+
+  /// Enforce safe settings for debug APK builds
+  Future<void> _enforceDebugApkSettings() async {
+    // Set to Silent preset
+    setLogPreset(LogPreset.silent);
+    setState(() {
+      _selectedLogLevel = LogPreset.silent;
+    });
+
+    // Disable file logging if enabled
+    if (_fileLoggingEnabled) {
+      await setFileLoggingEnabled(false);
+      setState(() {
+        _fileLoggingEnabled = false;
+      });
     }
   }
 
@@ -950,6 +990,14 @@ class _LogsTabContentState extends SettingsTabContentState<LogsTabContent>
 
   /// Toggle file logging on/off
   Future<void> _toggleFileLogging(bool enabled) async {
+    // In debug mode, show warning when trying to enable
+    if (kDebugMode && enabled) {
+      _showDebugApkSnackbar(
+        'File logging disabled in debug builds. Use ADB logcat instead.',
+      );
+      return;
+    }
+
     setProcessing(true);
     try {
       final success = await setFileLoggingEnabled(enabled);
@@ -1007,8 +1055,34 @@ class _LogsTabContentState extends SettingsTabContentState<LogsTabContent>
     }
   }
 
+  /// Show a snackbar for debug APK restrictions
+  void _showDebugApkSnackbar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.bug_report, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   /// Show log level selection popup
   Future<void> _showLogLevelSelector() async {
+    // In debug mode, block changing log level
+    if (kDebugMode) {
+      _showDebugApkSnackbar(
+        'Log level locked to Silent in debug builds to prevent instability.',
+      );
+      return;
+    }
+
     final selectedLevel = await showDialog<LogPreset>(
       context: context,
       builder: (context) => _LogLevelSelectorDialog(

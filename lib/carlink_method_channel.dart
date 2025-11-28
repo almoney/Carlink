@@ -15,6 +15,13 @@ class MethodChannelCarlink extends CarlinkPlatform {
   Function(int, Uint8List?)? _readingLoopMessageHandler;
   Function(String)? _readingLoopErrorHandler;
 
+  // Media control callbacks from AAOS/steering wheel
+  Function()? _mediaControlPlayHandler;
+  Function()? _mediaControlPauseHandler;
+  Function()? _mediaControlStopHandler;
+  Function()? _mediaControlNextHandler;
+  Function()? _mediaControlPreviousHandler;
+
   MethodChannelCarlink() {
     logDebug('MethodChannelCarlink initialized', tag: 'PLATFORM');
 
@@ -38,6 +45,21 @@ class MethodChannelCarlink extends CarlinkPlatform {
       } else if (call.method == "onReadingLoopError") {
         logError('Reading loop error: ${call.arguments}', tag: 'PLATFORM');
         _readingLoopErrorHandler?.call(call.arguments);
+      } else if (call.method == "onMediaControlPlay") {
+        logDebug('Media control: PLAY', tag: 'MEDIA_SESSION');
+        _mediaControlPlayHandler?.call();
+      } else if (call.method == "onMediaControlPause") {
+        logDebug('Media control: PAUSE', tag: 'MEDIA_SESSION');
+        _mediaControlPauseHandler?.call();
+      } else if (call.method == "onMediaControlStop") {
+        logDebug('Media control: STOP', tag: 'MEDIA_SESSION');
+        _mediaControlStopHandler?.call();
+      } else if (call.method == "onMediaControlNext") {
+        logDebug('Media control: NEXT', tag: 'MEDIA_SESSION');
+        _mediaControlNextHandler?.call();
+      } else if (call.method == "onMediaControlPrevious") {
+        logDebug('Media control: PREVIOUS', tag: 'MEDIA_SESSION');
+        _mediaControlPreviousHandler?.call();
       } else {
         logWarn('Unknown method call: ${call.method}', tag: 'PLATFORM');
       }
@@ -46,6 +68,21 @@ class MethodChannelCarlink extends CarlinkPlatform {
 
   void setLogHandler(Function(String)? logHandler) {
     _logHandler = logHandler;
+  }
+
+  /// Set handlers for media control events from AAOS/steering wheel.
+  void setMediaControlHandlers({
+    Function()? onPlay,
+    Function()? onPause,
+    Function()? onStop,
+    Function()? onNext,
+    Function()? onPrevious,
+  }) {
+    _mediaControlPlayHandler = onPlay;
+    _mediaControlPauseHandler = onPause;
+    _mediaControlStopHandler = onStop;
+    _mediaControlNextHandler = onNext;
+    _mediaControlPreviousHandler = onPrevious;
   }
 
   @override
@@ -165,6 +202,19 @@ class MethodChannelCarlink extends CarlinkPlatform {
       logInfo('H264 renderer reset successfully', tag: 'PLATFORM');
     } catch (e) {
       logError('Failed to reset H264 renderer: $e', tag: 'PLATFORM');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<String?> getCodecName() async {
+    logDebug('Getting codec name', tag: 'PLATFORM');
+    try {
+      final codecName = await methodChannel.invokeMethod<String?>('getCodecName');
+      logDebug('Codec name: $codecName', tag: 'PLATFORM');
+      return codecName;
+    } catch (e) {
+      logError('Failed to get codec name: $e', tag: 'PLATFORM');
       rethrow;
     }
   }
@@ -456,6 +506,340 @@ class MethodChannelCarlink extends CarlinkPlatform {
         'Bulk transfer OUT failed after ${stopwatch.elapsedMilliseconds}ms: $e',
         tag: 'PLATFORM',
       );
+      rethrow;
+    }
+  }
+
+  // ==================== Audio Playback Methods ====================
+
+  @override
+  Future<bool> initializeAudio({int decodeType = 4}) async {
+    logInfo('Initializing audio: decodeType=$decodeType', tag: 'AUDIO');
+    try {
+      final result = await methodChannel.invokeMethod<bool>('initializeAudio', {
+        'decodeType': decodeType,
+      });
+      logDebug('Audio initialized: $result', tag: 'AUDIO');
+      return result ?? false;
+    } catch (e) {
+      logError('Failed to initialize audio: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> startAudio() async {
+    logInfo('Starting audio playback', tag: 'AUDIO');
+    try {
+      final result = await methodChannel.invokeMethod<bool>('startAudio');
+      logDebug('Audio started: $result', tag: 'AUDIO');
+      return result ?? false;
+    } catch (e) {
+      logError('Failed to start audio: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> stopAudio() async {
+    logInfo('Stopping audio playback', tag: 'AUDIO');
+    try {
+      await methodChannel.invokeMethod<void>('stopAudio');
+      logDebug('Audio stopped', tag: 'AUDIO');
+    } catch (e) {
+      logError('Failed to stop audio: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> pauseAudio() async {
+    logInfo('Pausing audio playback', tag: 'AUDIO');
+    try {
+      await methodChannel.invokeMethod<void>('pauseAudio');
+      logDebug('Audio paused', tag: 'AUDIO');
+    } catch (e) {
+      logError('Failed to pause audio: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<int> writeAudio(
+    Uint8List data, {
+    int decodeType = 4,
+    int audioType = 1,
+    double volume = 1.0,
+  }) async {
+    // Note: High-frequency operation - only log errors, not every call
+    try {
+      final result = await methodChannel.invokeMethod<int>('writeAudio', {
+        'data': data,
+        'decodeType': decodeType,
+        'audioType': audioType,
+        'volume': volume,
+      });
+      return result ?? -1;
+    } catch (e) {
+      logError('Failed to write audio: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> setAudioDucking(double duckLevel) async {
+    logDebug('Setting audio ducking: $duckLevel', tag: 'AUDIO');
+    try {
+      await methodChannel.invokeMethod<void>('setAudioDucking', {
+        'duckLevel': duckLevel,
+      });
+    } catch (e) {
+      logError('Failed to set audio ducking: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> setAudioVolume(double volume) async {
+    logDebug('Setting audio volume: $volume', tag: 'AUDIO');
+    try {
+      await methodChannel.invokeMethod<void>('setAudioVolume', {
+        'volume': volume,
+      });
+    } catch (e) {
+      logError('Failed to set audio volume: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> isAudioPlaying() async {
+    try {
+      final result = await methodChannel.invokeMethod<bool>('isAudioPlaying');
+      return result ?? false;
+    } catch (e) {
+      logError('Failed to check audio playing state: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> getAudioStats() async {
+    logDebug('Getting audio stats', tag: 'AUDIO');
+    try {
+      final stats = await methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'getAudioStats',
+      );
+      return stats?.cast<String, dynamic>() ?? {};
+    } catch (e) {
+      logError('Failed to get audio stats: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> releaseAudio() async {
+    logInfo('Releasing audio resources', tag: 'AUDIO');
+    try {
+      await methodChannel.invokeMethod<void>('releaseAudio');
+      logDebug('Audio released', tag: 'AUDIO');
+    } catch (e) {
+      logError('Failed to release audio: $e', tag: 'AUDIO');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> stopAudioStream({required int audioType}) async {
+    // Stop (pause) a specific audio stream so AAOS deprioritizes that context
+    // for volume control. This fixes the "stuck volume" issue where volume keys
+    // continue to control a higher-priority context (e.g., NAV) after its audio ends.
+    final streamName = switch (audioType) {
+      1 => 'MEDIA',
+      2 => 'NAVIGATION',
+      3 => 'PHONE_CALL',
+      4 => 'VOICE/SIRI',
+      _ => 'UNKNOWN($audioType)',
+    };
+    logDebug('Stopping audio stream: $streamName', tag: 'AUDIO');
+    try {
+      await methodChannel.invokeMethod<void>('stopAudioStream', {
+        'audioType': audioType,
+      });
+      logDebug('Audio stream stopped: $streamName', tag: 'AUDIO');
+    } catch (e) {
+      logError('Failed to stop audio stream $streamName: $e', tag: 'AUDIO');
+      // Don't rethrow - stream stop is best-effort for AAOS volume control
+    }
+  }
+
+  // ==================== Microphone Capture Methods ====================
+
+  @override
+  Future<bool> startMicrophoneCapture({int decodeType = 5}) async {
+    logInfo('Starting microphone capture: decodeType=$decodeType', tag: 'MIC');
+    try {
+      final result = await methodChannel.invokeMethod<bool>(
+        'startMicrophoneCapture',
+        {'decodeType': decodeType},
+      );
+      logDebug('Microphone capture started: $result', tag: 'MIC');
+      return result ?? false;
+    } catch (e) {
+      logError('Failed to start microphone capture: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> stopMicrophoneCapture() async {
+    logInfo('Stopping microphone capture', tag: 'MIC');
+    try {
+      await methodChannel.invokeMethod<void>('stopMicrophoneCapture');
+      logDebug('Microphone capture stopped', tag: 'MIC');
+    } catch (e) {
+      logError('Failed to stop microphone capture: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Uint8List?> readMicrophoneData({int maxBytes = 1920}) async {
+    // Note: High-frequency operation - only log errors, not every call
+    try {
+      final data = await methodChannel.invokeMethod<List<dynamic>>(
+        'readMicrophoneData',
+        {'maxBytes': maxBytes},
+      );
+      if (data == null) return null;
+      return Uint8List.fromList(data.cast<int>());
+    } catch (e) {
+      logError('Failed to read microphone data: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> isMicrophoneCapturing() async {
+    try {
+      final result = await methodChannel.invokeMethod<bool>(
+        'isMicrophoneCapturing',
+      );
+      return result ?? false;
+    } catch (e) {
+      logError('Failed to check microphone capturing state: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> hasMicrophonePermission() async {
+    try {
+      final result = await methodChannel.invokeMethod<bool>(
+        'hasMicrophonePermission',
+      );
+      return result ?? false;
+    } catch (e) {
+      logError('Failed to check microphone permission: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<int> getMicrophoneDecodeType() async {
+    try {
+      final result = await methodChannel.invokeMethod<int>(
+        'getMicrophoneDecodeType',
+      );
+      return result ?? -1;
+    } catch (e) {
+      logError('Failed to get microphone decode type: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> getMicrophoneStats() async {
+    logDebug('Getting microphone stats', tag: 'MIC');
+    try {
+      final stats = await methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'getMicrophoneStats',
+      );
+      return stats?.cast<String, dynamic>() ?? {};
+    } catch (e) {
+      logError('Failed to get microphone stats: $e', tag: 'MIC');
+      rethrow;
+    }
+  }
+
+  // ==================== MediaSession Methods (AAOS Integration) ====================
+
+  @override
+  Future<void> updateMediaMetadata({
+    String? title,
+    String? artist,
+    String? album,
+    String? appName,
+    Uint8List? albumArt,
+    int duration = 0,
+  }) async {
+    logDebug(
+      'Updating media metadata: $title - $artist',
+      tag: 'MEDIA_SESSION',
+    );
+    try {
+      await methodChannel.invokeMethod<void>('updateMediaMetadata', {
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'appName': appName,
+        'albumArt': albumArt,
+        'duration': duration,
+      });
+    } catch (e) {
+      logError('Failed to update media metadata: $e', tag: 'MEDIA_SESSION');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> updatePlaybackState({
+    required bool isPlaying,
+    int position = 0,
+  }) async {
+    logDebug(
+      'Updating playback state: ${isPlaying ? "playing" : "paused"}',
+      tag: 'MEDIA_SESSION',
+    );
+    try {
+      await methodChannel.invokeMethod<void>('updatePlaybackState', {
+        'isPlaying': isPlaying,
+        'position': position,
+      });
+    } catch (e) {
+      logError('Failed to update playback state: $e', tag: 'MEDIA_SESSION');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> setMediaSessionConnecting() async {
+    logDebug('Setting media session to connecting', tag: 'MEDIA_SESSION');
+    try {
+      await methodChannel.invokeMethod<void>('setMediaSessionConnecting');
+    } catch (e) {
+      logError('Failed to set connecting state: $e', tag: 'MEDIA_SESSION');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> setMediaSessionStopped() async {
+    logDebug('Setting media session to stopped', tag: 'MEDIA_SESSION');
+    try {
+      await methodChannel.invokeMethod<void>('setMediaSessionStopped');
+    } catch (e) {
+      logError('Failed to set stopped state: $e', tag: 'MEDIA_SESSION');
       rethrow;
     }
   }

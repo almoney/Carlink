@@ -11,6 +11,7 @@ Carlink is a modernization of the original "Carplay" project by Abuharsky, desig
 
 - USB Host Communication: Direct USB protocol implementation for CPC200-CCPA control
 - Hardware-Accelerated Video: H.264 rendering with MediaCodec and OpenGL ES2
+- Full Audio Support: Media, Navigation, Siri, and Phone Call audio playback with microphone capture
 
 Credits & Prior Works
 
@@ -58,8 +59,9 @@ carlink/
 │       ├── PacketRingByteBuffer.java - 16MB ring buffer
 │       ├── TextureRender.java   - OpenGL ES2 rendering
 │       ├── OutputSurface.java   - EGL surface management
-│       ├── CarLinkMessage.java  - Protocol message wrapper
-│       ├── CarLinkMessageHeader.java - Message header parsing
+│       ├── DualStreamAudioManager.kt - 4-stream audio playback
+│       ├── MicrophoneCaptureManager.kt - Microphone capture
+│       ├── AudioRingBuffer.kt   - Jitter-compensating audio buffer
 │       ├── AppExecutors.java    - Thread pool management
 │       └── LogCallback.java     - Native logging bridge
 ├── example/                      - Example Android application
@@ -153,6 +155,13 @@ Features:
   - Adaptive buffer pools (6-20 buffers based on resolution)
   - Low-latency mode for Android 12+ (16-29ms total pipeline)
 
+- Audio Playback & Microphone
+  - 4 simultaneous audio streams: Media, Navigation, Siri/Voice, Phone Calls
+  - AAOS CarAudioContext integration (proper volume group routing)
+  - Jitter-compensating ring buffers with underrun recovery
+  - Microphone capture for Siri and phone calls (16kHz mono)
+  - Volume ducking during navigation prompts
+
 - Settings UI (Modular Architecture)
   - Status Tab: Adapter status monitoring
   - Control Tab: Device control commands (disconnect phone, close adapter, reset renderer, reset/reinit adapter)
@@ -177,11 +186,6 @@ Features:
 
 
 Current Limitations:
-
-- Audio Processing: CPC200-CCPA is initialized in video-only mode (`audioTransferMode` disabled)
-  - Audio protocol parsing is implemented (7 audio formats supported)
-  - Missing: `AudioTrack` playback and `AudioRecord` microphone capture
-  - This is an app limitation, not adapter hardware limitation
 
 - **Platform Support**: Android-only implementation
   - No iOS, web, macOS, or Linux native support
@@ -303,18 +307,6 @@ All version numbers, SDK levels, and package identifiers are managed in `project
 
 Update this file before publishing to Google Play Store. The automated build system handles package generation and cleanup.
 
-
-Future Development
-
-Planned (No Timeline):
-
-- Audio Support
-  - AudioTrack playback implementation
-  - AudioRecord microphone capture
-  - Volume control and audio focus management
-  - Real-time sample rate conversion
-  
-While enabling Audio support is relatively easy. Having it handle the different audio streams without the app slowing down to a crawl.... Yea, thats the hangup.
 
 Support & Issues
 

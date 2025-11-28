@@ -243,7 +243,14 @@ class AudioData extends Message {
     } else if (amount == 4) {
       audioDuration = reader.getFloat32();
     } else {
-      audioData = data.buffer.asUint16List(12);
+      // Create a view of just the audio data (excluding 12-byte header)
+      // Use data.offsetInBytes to handle cases where data is a view into a larger buffer
+      // amount = data.lengthInBytes - 12 = number of audio bytes
+      // amount ~/ 2 = number of 16-bit samples
+      audioData = data.buffer.asUint16List(
+        data.offsetInBytes + 12,  // Start after 12-byte header
+        amount ~/ 2,              // Number of 16-bit samples
+      );
     }
 
     command = audioCommand;

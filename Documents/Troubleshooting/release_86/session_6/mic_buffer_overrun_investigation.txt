@@ -1,0 +1,187 @@
+MICROPHONE BUFFER OVERRUN INVESTIGATION
+=======================================
+
+PROBLEM STATEMENT
+-----------------
+After microphone permission was granted, voice data was still not reaching iPhone/Siri because the microphone ring buffer was overflowing. Data was being captured by AudioRecord but lost before Dart could read it.
+
+
+LOG EVIDENCE
+------------
+First buffer overrun (16:40:12):
+16:40:11.041 > [MIC] Capture started: 16000Hz 1ch buffer=16320B
+16:40:11.041 > [MIC] Capture thread started with URGENT_AUDIO priority, chunk=640B
+16:40:12.695 > [MIC] Buffer overrun: wrote 639 of 640 bytes  <-- FIRST WARNING
+16:40:12.997 > [MIC] Buffer overrun: wrote 0 of 640 bytes    <-- TOTAL LOSS
+16:40:13.301 > [MIC] Buffer overrun: wrote 0 of 640 bytes
+16:40:13.910 > [MIC] Buffer overrun: wrote 0 of 640 bytes
+... (continues every ~300ms)
+
+Post-restart, same issue:
+16:46:46.214 > [MIC] Capture started: 16000Hz 1ch buffer=16320B
+16:46:47.860 > [MIC] Buffer overrun: wrote 639 of 640 bytes
+16:46:48.163 > [MIC] Buffer overrun: wrote 0 of 640 bytes
+16:46:48.467 > [MIC] Buffer overrun: wrote 0 of 640 bytes
+
+
+BUFFER SPECIFICATIONS
+---------------------
+Mic capture format:
+- Sample rate: 16000 Hz
+- Channels: 1 (mono)
+- Bit depth: 16-bit PCM
+- Chunk size: 640 bytes = 320 samples = 20ms of audio
+- Ring buffer: 16320 bytes = ~510ms capacity
+
+Expected throughput:
+- 50 chunks per second (20ms each)
+- 32,000 bytes per second
+
+
+TIMING ANALYSIS
+---------------
+Session at 16:40:
+16:40:11.041 > Capture started
+16:40:12.695 > First overrun (1.65 seconds later)
+
+That means buffer filled in ~1.6 seconds, then started overflowing.
+Buffer is 16320 bytes = 510ms, so buffer should fill in 0.5 seconds.
+But first overrun at 1.6 seconds suggests initial pre-fill worked,
+then reading stopped/slowed.
+
+
+DATA FLOW ARCHITECTURE
+----------------------
+Current flow:
+1. Kotlin AudioRecord reads from mic (every 20ms)
+2. Kotlin writes chunk to ring buffer
+3. Dart timer fires every 20ms (mic send loop)
+4. Dart calls platform getMicrophoneData()
+5. Kotlin returns chunk from ring buffer
+6. Dart sends to adapter via USB
+
+Problem points:
+- Timer-based polling may not be precise enough
+- Platform channel overhead adds latency
+- Dart side may be blocked by other operations
+
+
+WHY BUFFER OVERFLOWS
+--------------------
+The log shows "wrote 0 of 640 bytes" - this means:
+1. AudioRecord captured 640 bytes of mic data
+2. Tried to write to ring buffer
+3. Ring buffer was FULL (no space available)
+4. Data was DISCARDED (0 bytes written)
+
+Root cause: Dart layer not reading fast enough.
+
+Possible reasons:
+1. Dart timer not firing on time (Flutter scheduler issues)
+2. Platform channel calls taking too long
+3. Dart main isolate blocked by UI work
+4. USB write operations blocking main thread
+
+
+COMPARISON: WORKING VS BROKEN
+-----------------------------
+Working mic session (16:35:13):
+16:35:13.561 > RAW MIC TX: [actual data]
+16:35:13.580 > RAW MIC TX: [actual data]
+16:35:13.600 > RAW MIC TX: [actual data]
+... packets every ~20ms
+
+Broken mic session (16:40:12+):
+16:40:12.997 > Buffer overrun: wrote 0 of 640 bytes
+16:40:13.301 > Buffer overrun: wrote 0 of 640 bytes
+... no RAW MIC TX logs, data lost
+
+
+IMPACT ON SIRI
+--------------
+Without voice data:
+1. Siri plays activation tone
+2. Siri waits for voice input
+3. No voice data arrives (lost to overflow)
+4. Siri times out after ~6-7 seconds
+5. User's voice prompt never processed
+
+This explains why:
+- Siri tone was heard (Siri audio output working)
+- Voice prompts not recognized (mic data not sent)
+- User said "I love you", Siri sent "No" (garbled/incomplete data)
+
+
+SUGGESTED FIX OPTION 1: Increase Buffer Size
+--------------------------------------------
+Current: 16320 bytes (~510ms)
+Suggested: 48000 bytes (~1.5 seconds)
+
+In MicrophoneCaptureManager.kt:
+val BUFFER_SIZE_MS = 1500  // 1.5 seconds buffer
+val bufferSize = (sampleRate * channels * bytesPerSample * BUFFER_SIZE_MS) / 1000
+
+This provides more margin for timing jitter.
+
+
+SUGGESTED FIX OPTION 2: Use Callback Instead of Polling
+-------------------------------------------------------
+Replace timer-based polling with callback-based reads:
+
+// Kotlin side
+audioRecord.startRecording()
+audioRecord.setRecordPositionUpdateListener(object : OnRecordPositionUpdateListener {
+    override fun onMarkerReached(recorder: AudioRecord) {}
+    override fun onPeriodicNotification(recorder: AudioRecord) {
+        // Read data and notify Dart immediately
+        val data = readFromBuffer()
+        channel.invokeMethod("onMicData", data)
+    }
+})
+
+This ensures Dart receives data as soon as it's available.
+
+
+SUGGESTED FIX OPTION 3: Dedicated Read Thread
+--------------------------------------------
+Move mic reading to dedicated isolate in Dart:
+
+// In Dart
+Isolate.spawn(_micReadIsolate);
+
+void _micReadIsolate(SendPort port) {
+    Timer.periodic(Duration(milliseconds: 20), (timer) {
+        final data = platform.getMicrophoneData();
+        if (data != null) {
+            port.send(data);
+        }
+    });
+}
+
+This prevents main isolate blocking from affecting mic reads.
+
+
+MONITORING RECOMMENDATION
+-------------------------
+Add buffer health logging:
+
+Every 100ms:
+- Log buffer fill percentage
+- Log read/write rates
+- If fill > 80%, log WARNING
+- If overrun count > 0, log ERROR
+
+This helps detect issues before complete failure.
+
+
+TEST TO VERIFY FIX
+------------------
+1. Start app
+2. Connect CarPlay
+3. Play media (to stress system)
+4. Invoke Siri
+5. Speak voice command for full 6 seconds
+6. Verify:
+   - No "Buffer overrun" warnings in log
+   - MIC TX packets every ~20ms
+   - Siri correctly interprets voice command

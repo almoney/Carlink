@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-feature android:name="android.hardware.usb.host" android:required="true"/>
     <uses-feature android:name="android.hardware.usb.accessory" android:required="false"/>
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
     
     <!-- AAOS DISTRACTION OPTIMIZATION - PREVENT ALL BLOCKING -->
     <uses-permission android:name="android.car.permission.CAR_DRIVING_STATE" />
@@ -59,12 +61,32 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
                 <category android:name="android.intent.category.CAR_MODE"/>
             </intent-filter>
+            <!-- AAOS Media App Intent Filter - Required to be recognized as media source -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.APP_MUSIC"/>
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"/>
             </intent-filter>
             <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" android:resource="@xml/device_filter"/>
             
         </activity>
+        <!-- MEDIA BROWSER SERVICE - Registers app as AAOS media source -->
+        <!-- Allows Carlink to appear in media source selector and receive steering wheel controls -->
+        <service
+            android:name="com.carlink.CarlinkMediaBrowserService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+            <!-- Mark as media service for AAOS AppLauncherUtils -->
+            <meta-data
+                android:name="android.media.browse.defaultSearchSupported"
+                android:value="false" />
+        </service>
+
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -1,0 +1,167 @@
+AUDIO MANAGER NOT REINITIALIZED INVESTIGATION
+==============================================
+
+PROBLEM STATEMENT
+-----------------
+Navigation audio not heard during Session 5 because DualStreamAudioManager was released before session started and never reinitialized.
+
+
+USB DISCONNECT/RECONNECT SEQUENCE
+---------------------------------
+Before Session 5 started, there were multiple USB disconnect events:
+
+16:12:25.065 [USB] Closing device connection
+16:12:25.065 [USB] Device connection closed
+16:12:25.066 [AUDIO] Releasing DualStreamAudioManager
+
+16:12:27.072 [USB] Closing device connection
+16:12:27.072 [USB] Device connection closed
+16:12:27.073 [AUDIO] Releasing DualStreamAudioManager
+
+16:12:52.567 [USB] Closing device connection
+16:12:52.567 [USB] Device connection closed
+16:12:52.569 [AUDIO] Releasing DualStreamAudioManager
+
+16:12:54.574 [USB] Closing device connection
+16:12:54.574 [USB] Device connection closed
+16:12:54.578 [AUDIO] Releasing DualStreamAudioManager
+
+These appear to be multiple connection retry attempts that failed.
+
+
+USB RECONNECT
+-------------
+The USB device was eventually connected (video was working during session):
+
+16:14:09.631 [H264_RENDERER] [PERF] FPS: 8.9/60, Frames: R:268/D:268/Drop:0
+
+This proves USB is connected and working for video.
+
+
+MISSING INITIALIZATION
+----------------------
+What SHOULD happen when USB reconnects:
+1. USB device opened
+2. Video renderer started
+3. DualStreamAudioManager initialized
+4. Audio ready for commands
+
+What ACTUALLY happened:
+1. USB device opened
+2. Video renderer started
+3. DualStreamAudioManager NOT initialized <-- BUG
+4. Audio commands received but no manager to handle them
+
+
+CODE PATH ANALYSIS
+------------------
+Expected initialization flow (Kotlin):
+
+CarlinkPlugin.onMethodCall("initializeAudio") -> {
+    audioManager = DualStreamAudioManager(context)
+    // Log: "[AUDIO] DualStreamAudioManager initialized"
+}
+
+This initialization is not being triggered after USB reconnect.
+
+
+DART CODE TO INVESTIGATE
+------------------------
+File: lib/carlink.dart
+
+Look for:
+1. Where _initializeAudio() is called
+2. Whether it's called after USB reconnection
+3. Whether _audioInitialized flag prevents reinitialization
+
+Suspected issue:
+void _onUsbConnected() {
+    // Missing: await _initializeAudio();
+}
+
+Or:
+if (_audioInitialized) return;  // Prevents reinitialization even after release
+
+
+KOTLIN CODE TO INVESTIGATE
+--------------------------
+File: CarlinkPlugin.kt / AudioHandler.kt
+
+Look for:
+1. When initializeAudio is invoked
+2. Whether it checks if manager already exists
+3. Whether it handles the case where manager was released
+
+
+SUGGESTED FIX OPTION 1: Dart-side
+---------------------------------
+In carlink.dart, after USB connection established:
+
+void _onUsbConnected() async {
+    // Reset audio state after reconnection
+    _audioInitialized = false;
+
+    // Initialize audio
+    await _initializeAudio();
+
+    log('[AUDIO] Audio reinitialized after USB reconnection');
+}
+
+
+SUGGESTED FIX OPTION 2: Kotlin-side
+-----------------------------------
+In AudioHandler.kt, handle platform calls when manager is null:
+
+"writeAudio" -> {
+    if (audioManager == null) {
+        // Auto-initialize if needed
+        audioManager = DualStreamAudioManager(context)
+        log("[AUDIO] DualStreamAudioManager auto-initialized on write")
+    }
+    audioManager?.write(data)
+}
+
+
+SUGGESTED FIX OPTION 3: CarPlay session start
+---------------------------------------------
+When CarPlay session actually starts (after handshake complete):
+
+fun onCarPlaySessionStart() {
+    if (audioManager == null) {
+        audioManager = DualStreamAudioManager(context)
+        log("[AUDIO] DualStreamAudioManager initialized for new session")
+    }
+}
+
+
+TEST VERIFICATION
+-----------------
+After fix, perform this test:
+
+1. Start app with adapter disconnected
+2. Connect adapter
+3. Wait for CarPlay to connect
+4. Start navigation
+5. Verify navigation audio is heard
+
+Expected log sequence:
+- [USB] Device opened
+- [AUDIO] DualStreamAudioManager initialized  <-- This was missing
+- AudioNaviStart received
+- AudioOutputStart received
+- Created NAVIGATION AudioTrack  <-- This was missing
+- Audio playback started
+
+
+RELATED ISSUE: SESSION 3
+------------------------
+Session 3 had similar issue after disconnect/reconnect:
+- Audio not resuming after CarPlay reconnection
+- DualStreamAudioManager released but not reinitialized
+
+This is the same underlying bug manifesting in different scenarios.
+
+
+PRIORITY: HIGH
+--------------
+This bug affects all audio (navigation, Siri, media, phone calls) after any USB disconnect event.

@@ -1,0 +1,15 @@
+// Document each versionCode revision that is tested/compiled. To keep a history of modifications the entries should be brief, but informative.
+// Line formatting, [versionCode] :: <Brief but information Description. Pushed <DDMMYY HH:MM AM/PM
+//
+// START EXAMPLE
+//
+// [34] :: Troubleshooting 'AudioAttributes.USAGE' support in AAOS for the different Audio streams. Pushed: 26NOV25 11:30PM
+// [35] :: Issue: Audio Distortion. Attempting fix by increasing buffer size. Pushed: 26NOV25 12:53PM
+//
+// END EXAMPLE
+//
+// Major changes or discoveries. The appropriate .MD in Project:/Documentation/ should be updated/corrected or created with more technical information.
+//
+
+[86] :: Continued Testing of AAOS Audio Volume integration. PUSHED: 26NOV25 11:56PM
+[87] :: Paused AudioTracks properly resume via track.play() in ensureXxxTrack() methods, Siri tone not playing after first invocation, and _audioInitialized is reset to false on disconnect.

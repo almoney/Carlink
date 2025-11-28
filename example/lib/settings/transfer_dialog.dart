@@ -224,101 +224,125 @@ class _TransferDialogState extends State<TransferDialog>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final screenSize = MediaQuery.sizeOf(context);
+    final screenHeight = screenSize.height;
+    final screenWidth = screenSize.width;
+
+    // Responsive sizing
+    final isCompact = screenHeight < 700 || screenWidth < 400;
+    final padding = isCompact ? 16.0 : 24.0;
+    final spacing = isCompact ? 12.0 : 16.0;
+    final iconSize = isCompact ? 48.0 : 64.0;
 
     return PopScope(
       canPop: _state != TransferState.inProgress,
       child: Dialog(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
+          constraints: BoxConstraints(
             maxWidth: 380,
             minWidth: 280,
+            maxHeight: screenHeight * 0.85,
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Status Icon with Animation
-                SizedBox(
-                  width: 64,
-                  height: 64,
-                  child: _buildStatusIcon(),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Title
-                Text(
-                  widget.operationName,
-                  style: theme.textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 8),
-
-                // File count and size
-                Text(
-                  '${widget.files.length} file${widget.files.length != 1 ? 's' : ''} • ${_getTotalSizeString()}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Progress indicator
-                if (_state == TransferState.inProgress ||
-                    _state == TransferState.validating ||
-                    _state == TransferState.retrying) ...[
-                  AnimatedBuilder(
-                    animation: _pulseController,
-                    child: LinearProgressIndicator(
-                      color: colorScheme.primary,
-                    ),
-                    builder: (context, child) {
-                      return Opacity(
-                        opacity: 0.6 + (0.4 * _pulseController.value),
-                        child: child,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // Status message
-                Text(
-                  _statusMessage,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: _getStatusColor(),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-
-                // Retry indicator
-                if (_currentAttempt > 1) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color:
-                          colorScheme.tertiaryContainer.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      'Attempt $_currentAttempt of $_maxAttempts',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onTertiaryContainer,
-                        fontWeight: FontWeight.w500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Scrollable content
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(padding),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Status Icon with Animation
+                      SizedBox(
+                        width: iconSize,
+                        height: iconSize,
+                        child: _buildStatusIcon(isCompact),
                       ),
-                    ),
+
+                      SizedBox(height: spacing),
+
+                      // Title
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          widget.operationName,
+                          style: theme.textTheme.headlineSmall,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+
+                      SizedBox(height: isCompact ? 4 : 8),
+
+                      // File count and size
+                      Text(
+                        '${widget.files.length} file${widget.files.length != 1 ? 's' : ''} • ${_getTotalSizeString()}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+
+                      SizedBox(height: spacing),
+
+                      // Progress indicator
+                      if (_state == TransferState.inProgress ||
+                          _state == TransferState.validating ||
+                          _state == TransferState.retrying) ...[
+                        AnimatedBuilder(
+                          animation: _pulseController,
+                          child: LinearProgressIndicator(
+                            color: colorScheme.primary,
+                          ),
+                          builder: (context, child) {
+                            return Opacity(
+                              opacity: 0.6 + (0.4 * _pulseController.value),
+                              child: child,
+                            );
+                          },
+                        ),
+                        SizedBox(height: spacing),
+                      ],
+
+                      // Status message
+                      Text(
+                        _statusMessage,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: _getStatusColor(),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+
+                      // Retry indicator
+                      if (_currentAttempt > 1) ...[
+                        SizedBox(height: isCompact ? 4 : 8),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isCompact ? 8 : 12,
+                            vertical: isCompact ? 2 : 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.tertiaryContainer
+                                .withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'Attempt $_currentAttempt of $_maxAttempts',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onTertiaryContainer,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
+                ),
+              ),
 
-                const SizedBox(height: 24),
-
-                // Action buttons
-                Row(
+              // Fixed action buttons at bottom
+              Padding(
+                padding: EdgeInsets.fromLTRB(padding, 0, padding, padding),
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     if (_state == TransferState.failed) ...[
@@ -326,7 +350,7 @@ class _TransferDialogState extends State<TransferDialog>
                         onPressed: _cancel,
                         child: const Text('Close'),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: isCompact ? 8 : 12),
                       FilledButton(
                         onPressed: () {
                           _currentAttempt = 1;
@@ -342,24 +366,25 @@ class _TransferDialogState extends State<TransferDialog>
                     ],
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStatusIcon() {
+  Widget _buildStatusIcon(bool isCompact) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final size = isCompact ? 28.0 : 32.0;
 
     switch (_state) {
       case TransferState.preparing:
       case TransferState.validating:
         return AnimatedBuilder(
           animation: _spinController,
-          child: Icon(Icons.folder_open, size: 32, color: colorScheme.primary),
+          child: Icon(Icons.folder_open, size: size, color: colorScheme.primary),
           builder: (context, child) {
             return Transform.rotate(
               angle: _spinController.value * 2 * 3.14159,
@@ -371,7 +396,7 @@ class _TransferDialogState extends State<TransferDialog>
       case TransferState.inProgress:
         return AnimatedBuilder(
           animation: _pulseController,
-          child: Icon(Icons.share, size: 32, color: colorScheme.primary),
+          child: Icon(Icons.share, size: size, color: colorScheme.primary),
           builder: (context, child) {
             return Transform.scale(
               scale: 1.0 + (0.2 * _pulseController.value),
@@ -384,7 +409,7 @@ class _TransferDialogState extends State<TransferDialog>
         return AnimatedBuilder(
           animation: _spinController,
           child: Icon(Icons.refresh,
-              size: 32, color: colorScheme.tertiaryContainer),
+              size: size, color: colorScheme.tertiaryContainer),
           builder: (context, child) {
             return Transform.rotate(
               angle: _spinController.value * 2 * 3.14159,
@@ -394,10 +419,10 @@ class _TransferDialogState extends State<TransferDialog>
         );
 
       case TransferState.completed:
-        return Icon(Icons.check_circle, size: 32, color: colorScheme.primary);
+        return Icon(Icons.check_circle, size: size, color: colorScheme.primary);
 
       case TransferState.failed:
-        return Icon(Icons.error, size: 32, color: colorScheme.error);
+        return Icon(Icons.error, size: size, color: colorScheme.error);
     }
   }
 

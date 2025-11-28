@@ -8,6 +8,7 @@ import 'package:carlink/log.dart';
 import 'settings_page.dart';
 import 'settings/status_monitor.dart';
 import 'immersive_preference.dart';
+import 'device_operations.dart';
 
 // MainPage - Primary Projection Display Interface
 //
@@ -64,15 +65,38 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   bool get _isStarted => _carlink != null;
   bool _isConfiguring = false; // Prevent concurrent configuration
 
+  // Flag to control SafeArea behavior based on immersive mode preference
+  // When true, SafeArea padding is disabled to prevent viewport resize in immersive mode
+  bool _disableSafeArea = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Load immersive preference to control SafeArea behavior
+    // This prevents viewport resize when SystemUI temporarily appears
+    _loadImmersivePreference();
+
     // Immersive mode now initialized in main() before runApp()
     // This ensures correct viewport dimensions from first build
 
     // LayoutBuilder in build() will trigger _configureForViewport() which starts Carlink
     // No need for delayed _start() here
+  }
+
+  /// Load immersive mode preference to control SafeArea behavior
+  ///
+  /// When immersive mode is enabled, SafeArea is disabled to prevent the viewport
+  /// from shrinking when system UI temporarily appears (dialogs, notifications).
+  /// This ensures the texture resolution and viewport size remain consistent.
+  Future<void> _loadImmersivePreference() async {
+    final isImmersive = await ImmersivePreference.instance.isEnabled();
+    if (mounted) {
+      setState(() {
+        _disableSafeArea = isImmersive;
+      });
+    }
   }
 
   /// Initialize immersive mode based on user preference
@@ -378,6 +402,12 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
     return Scaffold(
       body: SafeArea(
+        // Disable SafeArea in immersive mode to prevent viewport resize
+        // when system UI temporarily appears (dialogs, notifications)
+        top: !_disableSafeArea,
+        bottom: !_disableSafeArea,
+        left: !_disableSafeArea,
+        right: !_disableSafeArea,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final viewport = constraints.biggest;
@@ -456,7 +486,13 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
                   Positioned(
                     top: 24,
                     left: 24,
-                    child: _buildSettingsButton(context),
+                    child: Row(
+                      children: [
+                        _buildSettingsButton(context),
+                        const SizedBox(width: 16),
+                        _buildResetButton(context),
+                      ],
+                    ),
                   ),
               ],
             );
@@ -478,6 +514,48 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         minimumSize: const Size(180, 72),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       ),
+    );
+  }
+
+  /// Builds a Material 3 reset button for automotive touch targets
+  Widget _buildResetButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isEnabled = _isStarted && !DeviceOperations.isProcessing;
+
+    return FilledButton.tonalIcon(
+      onPressed: isEnabled ? _resetDevice : null,
+      icon: DeviceOperations.isProcessing
+          ? const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Icon(Icons.restart_alt, size: 28),
+      label: Text('Reset Device', style: theme.textTheme.titleLarge),
+      style: FilledButton.styleFrom(
+        backgroundColor: colorScheme.errorContainer,
+        foregroundColor: colorScheme.onErrorContainer,
+        minimumSize: const Size(180, 72),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      ),
+    );
+  }
+
+  /// Reset the USB device connection using shared DeviceOperations utility.
+  ///
+  /// This method delegates to DeviceOperations.restartConnection() to ensure
+  /// identical behavior to Settings > Control > Reset USB Device.
+  /// Prevents concurrent operations and provides consistent error handling.
+  Future<void> _resetDevice() async {
+    await DeviceOperations.restartConnection(
+      context: context,
+      carlink: _carlink,
+      successMessage: 'Connection restart completed successfully',
+      initiatedFrom: 'Main Page',
     );
   }
 }

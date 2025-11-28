@@ -1,0 +1,163 @@
+DISCONNECT NO AUDIO INVESTIGATION
+==================================
+
+PROBLEM STATEMENT
+-----------------
+After CarPlay session disconnect and reconnect, audio does not resume.
+User hears nothing despite projection video working.
+Occurred twice in Session 3: 10:48 and 11:22.
+
+
+EVENT SEQUENCE AT 10:48:35
+--------------------------
+10:48:35.770 MEDIA_SESSION Playback state: CONNECTING
+10:48:35.772 USB Closing device connection
+10:48:35.772 USB Device connection closed
+10:48:35.773 AUDIO Releasing DualStreamAudioManager
+10:48:35.774 AUDIO DualStreamAudioManager released
+10:48:35.779 MEDIA_SESSION Playback state: STOPPED
+10:48:35.781 VIDEO Resetting H.264 renderer
+10:48:35.781 H264_RENDERER reset codec
+
+After reset:
+10:48:35.810 H264_RENDERER Using generic decoder: c2.v4l2.avc.decoder
+10:48:35.810 H264_RENDERER codec created
+10:48:35.812 H264_RENDERER configure media codec
+
+Video codec was reinitialized.
+Audio manager was released but reinitialization not logged.
+
+
+EXPECTED BEHAVIOR
+-----------------
+1. CarPlay session ends
+2. App releases audio resources
+3. App releases video resources
+4. CarPlay session reconnects
+5. App reinitializes video (logged: codec created)
+6. App reinitializes audio (NOT logged)
+7. Audio resumes
+
+
+OBSERVED BEHAVIOR
+-----------------
+1. CarPlay session ends
+2. App releases audio resources
+3. App releases video resources
+4. CarPlay session reconnects
+5. App reinitializes video (logged: codec created)
+6. Audio NOT reinitialized
+7. No audio heard
+
+
+MISSING LOG ENTRIES
+-------------------
+After reconnect, should see:
+- AUDIO Initializing audio: decodeType=4
+- AUDIO Audio initialized: true
+- AUDIO Audio playback initialized
+
+These entries appear at session start (10:56:25) but NOT after reconnect (10:48:35).
+
+
+SUSPECTED CODE PATH
+-------------------
+File: carlink.dart
+Location: Connection state handling
+
+When CarPlay disconnects:
+- _releaseAudio() called
+- _audioInitialized = false
+
+When CarPlay reconnects:
+- _initializeAudio() should be called
+- But may be skipped if connection state not properly detected
+
+
+INVESTIGATION POINTS
+--------------------
+1. Check carlink.dart connection state machine
+2. Find where _initializeAudio is called
+3. Verify it triggers on reconnect, not just initial connect
+4. Check if there is a race condition between disconnect/reconnect
+
+5. Look for:
+   - PhoneWorkMode changes
+   - CarPlayStart/CarPlayStop commands
+   - Connection state transitions
+
+
+DART CODE TO CHECK
+------------------
+Look for these patterns in carlink.dart:
+
+void _onConnectionStateChanged(ConnectionState state) {
+  if (state == ConnectionState.connected) {
+    // Is _initializeAudio() called here?
+  }
+}
+
+void _handleMessage(Message msg) {
+  if (msg.type == MessageType.CarPlayStart) {
+    // Is _initializeAudio() called here?
+  }
+}
+
+
+KOTLIN CODE TO CHECK
+--------------------
+DualStreamAudioManager.kt:
+
+fun start(): Boolean {
+  // Does this properly restart all AudioTracks?
+  // Are tracks in STATE_PLAYING after return?
+}
+
+AudioHandler.kt:
+
+"initializeAudio" -> {
+  // Is this called on reconnect?
+}
+
+
+POTENTIAL FIX
+-------------
+In carlink.dart, when CarPlay session reconnects:
+
+void _onCarPlayReconnect() async {
+  log('[AUDIO] Reinitializing audio after reconnect');
+
+  // Release any stale state
+  await _releaseAudio();
+
+  // Wait for cleanup
+  await Future.delayed(Duration(milliseconds: 100));
+
+  // Reinitialize
+  _audioInitialized = false;
+  await _initializeAudio();
+
+  // Verify
+  final playing = await _platform.isAudioPlaying();
+  log('[AUDIO] Audio playing after reconnect: $playing');
+}
+
+
+TEST SCENARIO
+-------------
+1. Start CarPlay session
+2. Play music
+3. On iPhone, switch to different app (causes session pause)
+4. Return to CarPlay
+5. Verify audio resumes
+
+Current result: No audio
+Expected result: Audio resumes
+
+
+RELATED FILES
+-------------
+lib/carlink.dart - Connection state handling
+lib/carlink_method_channel.dart - Platform calls
+android/.../DualStreamAudioManager.kt - Audio implementation
+android/.../AudioHandler.kt - Platform handler

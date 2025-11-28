@@ -15,6 +15,9 @@ package com.carlink.handlers
  * 2. VideoHandler - Flutter texture and H.264 rendering
  * 3. UsbDeviceHandler - USB device lifecycle and configuration
  * 4. BulkTransferHandler - USB bulk transfers and reading loop
+ * 5. AudioHandler - Audio playback via AudioTrack
+ * 6. MicrophoneHandler - Microphone capture for Siri/Phone calls
+ * 7. MediaSessionHandler - AAOS media source and steering wheel controls
  *
  * BENEFITS OF THIS DESIGN:
  * - Separation of Concerns: Each handler manages one domain
@@ -41,6 +44,9 @@ class MethodCallDispatcher(
     private val videoHandler: VideoHandler,
     private val usbDeviceHandler: UsbDeviceHandler,
     private val bulkTransferHandler: BulkTransferHandler,
+    private val audioHandler: AudioHandler,
+    private val microphoneHandler: MicrophoneHandler,
+    private val mediaSessionHandler: MediaSessionHandler,
 ) : MethodChannel.MethodCallHandler {
     /**
      * Routes method calls to the appropriate specialized handler.
@@ -60,7 +66,10 @@ class MethodCallDispatcher(
             displayHandler.handle(call, result) ||
                 videoHandler.handle(call, result) ||
                 usbDeviceHandler.handle(call, result) ||
-                bulkTransferHandler.handle(call, result)
+                bulkTransferHandler.handle(call, result) ||
+                audioHandler.handle(call, result) ||
+                microphoneHandler.handle(call, result) ||
+                mediaSessionHandler.handle(call, result)
 
         if (!handled) {
             result.notImplemented()

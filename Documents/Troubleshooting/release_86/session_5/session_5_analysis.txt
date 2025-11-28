@@ -1,0 +1,161 @@
+SESSION 5 LOG ANALYSIS
+======================
+Date: 2025-11-27
+Time Range: 16:13:57 PM - 16:22:13 PM (~8 minutes)
+Test Type: Navigation Audio Only (no media, Siri, phone)
+Log Level: audioOnly
+Result: NO audio heard for any navigation event
+
+
+SUMMARY
+-------
+Session tested navigation audio exclusively. Five navigation events occurred, none produced audible audio. Root cause: DualStreamAudioManager was released before session started and never reinitialized.
+
+
+USER OBSERVATIONS
+-----------------
+Event   Time      Type        Audio Heard
+1       4:14 PM   Nav Start   NO
+2       4:15 PM   Nav End     -
+3       4:16 PM   Nav Start   NO
+4       4:17 PM   Nav End     -
+5       4:16 PM   Nav Start   NO
+6       4:20 PM   Nav End     -
+
+
+NAVIGATION EVENT TIMELINE (from logs)
+-------------------------------------
+Time         Event                          Notes
+16:14:25.929 AudioNaviStart (id=6)          First nav, ducking set to 20%
+16:14:25.958 AudioOutputStart (id=1)        Audio output requested
+16:14:26.138 Audio data arriving            5760 samples per packet
+16:14:27.633 AudioNaviStop (id=7)           First nav ended
+16:16:02.000 AudioNaviStart (id=6)          Second nav
+16:16:04.161 AudioNaviStop (id=7)           Second nav ended
+16:16:04.929 AudioNaviStart (id=6)          Third nav
+16:16:06.461 AudioNaviStop (id=7)           Third nav ended
+16:19:20.166 AudioNaviStart (id=6)          Fourth nav
+16:19:21.795 AudioNaviStop (id=7)           Fourth nav ended
+16:19:24.738 AudioNaviStart (id=6)          Fifth nav
+16:19:26.322 AudioNaviStop (id=7)           Fifth nav ended
+
+
+ROOT CAUSE
+----------
+DualStreamAudioManager was released before Session 5 logging began and never reinitialized.
+
+Timeline of audio manager lifecycle:
+16:12:09.254  DualStreamAudioManager initialized
+16:12:25.066  [USB] Device connection closed
+16:12:25.066  DualStreamAudioManager RELEASED
+16:12:27.073  DualStreamAudioManager RELEASED (2nd time)
+16:12:52.569  DualStreamAudioManager RELEASED (3rd time)
+16:12:54.578  DualStreamAudioManager RELEASED (4th time)
+16:13:57     SESSION 5 LOGGING BEGINS
+              *** NO DualStreamAudioManager re-initialization ***
+16:14:25     First nav audio event - no audio manager to handle it!
+
+
+WHY NO AUDIO
+------------
+Data flow during Session 5:
+
+1. Adapter sends AudioNaviStart command -> Dart receives it
+2. Dart logs: "[AUDIO_CONTEXT] Stream context changed to NAVIGATION"
+3. Adapter sends AudioOutputStart command -> Dart receives it
+4. Adapter sends audio data packets -> Dart receives them
+5. Dart logs: "AudioData received: samples=5760 bytes=11532"
+6. BUT: No writeAudio call to platform!
+7. No AudioTrack created!
+8. Audio data never reaches Android audio system!
+
+The audio ducking (Media ducked to 20%) DOES work because that's a separate code path through AudioFocus management. But actual audio playback requires:
+- DualStreamAudioManager to be initialized
+- AudioTrack to be created
+- writeAudio() to be called with audio data
+
+None of these happened because DualStreamAudioManager was null.
+
+
+EVIDENCE: AUDIO DATA WAS ARRIVING
+---------------------------------
+16:14:26.318 > AudioData received: samples=5760 bytes=11532
+              Data=[fe ff fe ff fd ff fd ff fc ff fc ff...]
+              ^^ Non-zero samples = real audio waveform!
+
+16:14:26.559 > AudioData received: samples=5760 bytes=11532
+              Data=[9f fd 9f fd e4 fe e4 fe e4 ff e4 ff...]
+              ^^ Navigation voice audio data arriving correctly
+
+Audio format: 48000Hz stereo (11520 bytes / 2 channels / 2 bytes = 2880 samples per channel)
+Packet rate: ~60ms per packet
+
+
+EVIDENCE: NO AUDIOTRACK CREATED
+-------------------------------
+Session 4 (working first Siri):
+14:48:59.983 > Created MEDIA AudioTrack: 16000Hz 1ch buffer=6480B usage=1
+
+Session 5 (not working):
+*** NO "Created AudioTrack" log entries ***
+
+
+EVIDENCE: AUDIO MANAGER RELEASED
+--------------------------------
+Logcat shows 4 release events before Session 5:
+
+16:12:25.066 [AUDIO] Releasing DualStreamAudioManager
+16:12:25.066 [AUDIO] DualStreamAudioManager released
+
+16:12:27.073 [AUDIO] Releasing DualStreamAudioManager
+16:12:27.073 [AUDIO] DualStreamAudioManager released
+
+16:12:52.569 [AUDIO] Releasing DualStreamAudioManager
+16:12:52.569 [AUDIO] DualStreamAudioManager released
+
+16:12:54.578 [AUDIO] Releasing DualStreamAudioManager
+16:12:54.578 [AUDIO] DualStreamAudioManager released
+
+
+COMPARISON TO SESSION 4
+-----------------------
+Session 4 (Siri audio):
+- First Siri: DualStreamAudioManager initialized, AudioTrack created
+- Siri tone HEARD
+- Subsequent Siri: Track paused but not resumed
+- Siri tone NOT heard
+
+Session 5 (Nav audio):
+- DualStreamAudioManager never initialized during session
+- No AudioTrack ever created
+- All nav audio NOT heard
+
+
+FIX REQUIRED
+------------
+Location: Dart code (carlink.dart) or Kotlin plugin initialization
+
+Issue: When CarPlay session starts after USB reconnection, DualStreamAudioManager is not being reinitialized.
+
+Required behavior:
+1. When USB device is detected and opened
+2. When CarPlay session starts (PhoneWorkMode changes)
+3. Initialize DualStreamAudioManager if not already initialized
+
+Verification:
+After fix, should see this log on session start:
+"[AUDIO] DualStreamAudioManager initialized"
+
+
+FILES ANALYZED
+--------------
+APP_LOG: carlink_20251127_161207_058.log (258999 bytes)
+ADB_LOGCAT: logcat.log (3006661 bytes)
+CPC200-CCPA_LOG: adapter_live_stream.log (531034 bytes)
+user_observations (466 bytes)
+
+
+ANALYSIS COMPLETED
+------------------
+Analyst: Claude Code
+Date: 2025-11-27

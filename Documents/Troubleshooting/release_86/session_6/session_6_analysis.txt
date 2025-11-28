@@ -1,0 +1,183 @@
+SESSION 6 LOG ANALYSIS
+======================
+Date: 2025-11-27
+Time Range: 16:27:50 PM - 16:50:50 PM (~23 minutes)
+Test Type: Siri + Media Playback (Siri during Apple Music)
+Log Level: audioOnly
+Result: Multiple issues - Mic permission denied, Mic buffer overruns
+
+SUMMARY
+-------
+Session 6 tested Siri invocation during media playback. Multiple Siri timeouts occurred because:
+1. First half: Microphone permission NOT granted (user discovered at 4:33-4:34 PM)
+2. Second half: Microphone capturing but buffer overruns losing voice data
+
+App was force-closed at 4:45 PM and auto-restarted. Same issues persisted after restart.
+
+
+USER OBSERVATIONS
+-----------------
+Event   Time      Type           Audio Heard   Issue
+1       4:29:35   Media Start    YES           -
+2       4:30:30   Siri           Tone only     No voice recognition (permission denied)
+3       4:31:30   Siri           Tone only     No voice recognition (permission denied)
+4       4:32:30   Siri           Tone only     No voice recognition (permission denied)
+5       4:33:30   Siri (silent)  Tone          User discovered mic permission issue
+6       4:35:10   Siri           Tone only     Permission granted, but timeouts continue
+7-10    Various   Siri           Tone only     Mic buffer overruns
+11      4:38:00   Media Start    NO            Audio not heard (track paused?)
+12      4:39:00   Siri           Tone only     Timeout
+13      4:41:30   Siri (message) Not heard     Siri sent wrong text ("No" instead of "I love you")
+14      4:45:00   Force close    -             User force closed app
+15      4:45:28   Auto-restart   -             App auto-opened, projection started
+16      4:46:45   Siri           Tone only     Timeout continues after restart
+17      4:47:30   Media          YES           Media heard
+18      4:48:20   Siri           Tone only     Timeout
+
+
+ROOT CAUSES
+-----------
+1. MICROPHONE PERMISSION NOT GRANTED (first 4 Siri invocations)
+   - App checked permission but result was FALSE
+   - No mic capture started
+   - No voice data sent to adapter
+   - Siri timed out waiting for voice input
+
+2. MICROPHONE BUFFER OVERRUNS (after permission granted)
+   - Kotlin MicrophoneCaptureManager capturing audio
+   - Ring buffer filled faster than Dart could read
+   - Buffer overrun warnings: "wrote 0 of 640 bytes"
+   - Voice data LOST even though mic was working
+
+3. AUDIO PLAYBACK UNDERRUNS (throughout session)
+   - 800+ media underruns by 16:35
+   - Buffer draining faster than filling
+   - Indicates timing/scheduling issues
+
+
+TIMELINE OF MIC ISSUES
+----------------------
+Pre-Permission Fix:
+16:30:33.161 > [MIC] Permission check result: false
+16:30:33.161 > [MIC] Microphone permission not granted
+16:31:32.346 > [MIC] Permission check result: false
+16:32:32.187 > [MIC] Permission check result: false
+16:33:31.748 > [MIC] Permission check result: false
+
+Post-Permission Fix (16:35):
+16:35:13.278 > [MIC] Permission check result: true
+16:35:13.315 > [MIC] Microphone capture started: true
+16:35:13.318 > [MIC] Microphone send loop started (20ms interval)
+16:35:13.580 > [MIC] RAW MIC TX: Type=0x07 Len=652 Data=[non-zero audio]
+*** MIC SENDING REAL AUDIO DATA ***
+
+Buffer Overruns (16:40+):
+16:40:12.695 > [MIC] Buffer overrun: wrote 639 of 640 bytes
+16:40:12.997 > [MIC] Buffer overrun: wrote 0 of 640 bytes
+16:40:13.301 > [MIC] Buffer overrun: wrote 0 of 640 bytes
+... repeated every ~300ms during Siri session
+
+
+MIC DATA FLOW ANALYSIS
+----------------------
+Expected flow:
+1. Kotlin AudioRecord captures mic at 16000Hz mono
+2. Kotlin writes to ring buffer (16320 byte buffer)
+3. Dart reads from buffer via platform channel
+4. Dart sends mic data to adapter every 20ms
+
+What's happening:
+1. Kotlin capturing mic correctly -> WORKING
+2. Kotlin writes to ring buffer -> WORKING
+3. Dart reads too slowly -> BUFFER FILLS UP
+4. Buffer overflows -> DATA LOST
+5. Siri receives no/incomplete voice -> TIMEOUT
+
+
+EVIDENCE: MIC DATA WAS CAPTURING
+--------------------------------
+16:35:13.580 > RAW MIC TX: Data=[1d 00 ed ff 0a 00 fd ff...]
+16:35:13.600 > RAW MIC TX: Data=[24 02 2b 02 29 03 b5 02...]
+16:35:13.619 > RAW MIC TX: Data=[e4 03 78 03 b2 03 67 03...]
+
+Non-zero samples = real voice audio being captured!
+But overruns start within 1 second of capture.
+
+
+EVIDENCE: OVERRUNS DURING SIRI
+------------------------------
+16:40:12.695 [MIC] Buffer overrun: wrote 639 of 640 bytes
+16:40:12.997 [MIC] Buffer overrun: wrote 0 of 640 bytes
+16:40:13.301 [MIC] Buffer overrun: wrote 0 of 640 bytes
+...
+16:40:19.534 [MIC] Stopping capture
+16:40:19.542 [MIC] Capture thread stopped, total captured: 270719B
+
+~270KB captured in ~9 seconds, but how much was lost to overruns?
+
+
+AUDIO UNDERRUN STATISTICS
+-------------------------
+By timestamp, total underrun count:
+16:30:00 > 200 underruns (media playback)
+16:35:00 > 777 underruns
+16:35:02 > 800+ underruns
+
+This indicates continuous buffer drain issues with media playback.
+
+
+FIX REQUIRED
+------------
+1. MICROPHONE PERMISSION:
+   - App should request mic permission on startup
+   - Show permission rationale dialog
+   - Gracefully handle denial (notify user Siri won't work)
+
+2. MIC BUFFER OVERRUN:
+   - Increase ring buffer size (current: 16320 bytes = ~1 second)
+   - Dart needs to read faster from mic buffer
+   - Consider direct callback instead of timer-based polling
+
+3. AUDIO UNDERRUNS:
+   - Related to Session 4 issue
+   - Track pause/resume not working correctly
+   - Need to investigate buffer pre-fill timing
+
+
+POST-RESTART BEHAVIOR
+---------------------
+After app force-close and restart:
+- DualStreamAudioManager reinitialized correctly
+- Mic permission persisted (still granted)
+- Same mic buffer overrun issues occurred
+- Same Siri timeout issues
+
+This proves the overrun issue is systemic, not a one-time state problem.
+
+
+FILES ANALYZED
+--------------
+APP_LOG: carlink_20251127_162740_865.log (8451901 bytes) - Pre-restart
+APP_LOG: carlink_20251127_164513_159.log (1651292 bytes) - Post-restart
+ADB_LOGCAT: logcat.log (5159691 bytes)
+CPC200-CCPA_LOG: adapter_live_stream.log (1410271 bytes)
+user_observations (1949 bytes)
+
+
+RELATED SESSIONS
+----------------
+Session 4: AudioTrack pause/resume issue
+Session 5: DualStreamAudioManager not reinitialized
+Session 6: Mic permission + Mic buffer overrun
+
+
+PRIORITY: HIGH
+--------------
+Siri functionality is completely broken due to these issues.
+Even when permission is granted, buffer overruns prevent voice data from reaching iPhone.
+
+
+ANALYSIS COMPLETED
+------------------
+Analyst: Claude Code
+Date: 2025-11-27

@@ -1,0 +1,163 @@
+MEDIA AUDIO UNDERRUN ANALYSIS
+=============================
+
+PROBLEM STATEMENT
+-----------------
+Throughout Session 6, media playback experienced continuous underruns, reaching 800+ underruns by 16:35. This indicates systemic buffer drain issues.
+
+
+UNDERRUN PROGRESSION
+--------------------
+Time         Total Underruns   Delta    Notes
+16:29:37     0                 0        Media track created
+16:29:37     1                 +1       First underrun immediately
+16:29:38     10                +9       Rapid underruns
+16:30:00     200               +190     10 per second average
+16:35:00     777               +577     Still accumulating
+16:35:02     800+              +23      >800 underruns in 5 minutes
+
+
+BUFFER CONFIGURATION
+--------------------
+Media track configuration:
+16:29:37.670 > Created MEDIA AudioTrack: 48000Hz 2ch buffer=38480B usage=1
+
+Buffer size: 38480 bytes
+Sample rate: 48000 Hz
+Channels: 2 (stereo)
+Frame size: 4 bytes (16-bit stereo)
+Buffer duration: 38480 / 48000 / 4 = 200ms
+
+Pre-fill target: 120ms
+16:29:37.704 > Media pre-fill complete: 120ms buffered, starting playback
+
+
+WHAT IS AN UNDERRUN?
+--------------------
+AudioTrack underrun occurs when:
+1. Playback thread tries to read audio from buffer
+2. Buffer doesn't have enough data
+3. AudioTrack outputs silence instead
+4. Underrun counter increments
+
+User hears: Glitches, pops, silence gaps in audio
+
+
+ROOT CAUSE HYPOTHESIS
+---------------------
+Based on Session 4 and 6 patterns:
+
+1. Data arrival rate is lower than expected
+   - Adapter sends ~17 packets/second (60ms each)
+   - Should be 16.67 packets/sec for continuous playback
+   - Variation causes buffer to slowly drain
+
+2. Buffer pre-fill insufficient
+   - 120ms pre-fill may not be enough
+   - Playback starts before stable data flow
+
+3. Thread scheduling issues
+   - Playback thread may be starved
+   - Competing with video decoder, mic capture
+
+
+LOG EVIDENCE: AUDIO DATA RATE
+-----------------------------
+From adapter log:
+16:29:41.216 > audio frame rate: 16, 180.19 KB/s
+16:29:51.225 > audio frame rate: 17, 191.45 KB/s
+16:30:01.232 > audio frame rate: 17, 191.45 KB/s
+
+Consistent 16-17 packets/sec = correct rate.
+So data is arriving correctly but buffer still drains.
+
+
+COMPARISON TO SESSION 4
+-----------------------
+Session 4 had buffer OVERFLOW (fill=99.99%, overflow=568)
+Session 6 has buffer UNDERRUN (fill=0%, underrun=800+)
+
+Session 4: Track paused, data not draining
+Session 6: Track playing, data not filling fast enough
+
+
+BUFFER STATS DURING UNDERRUNS
+-----------------------------
+16:35:01.832 > [AUDIO_STATS] fill=0ms/0.0% written=15770880 read=15770880
+
+Written = Read means buffer is being drained completely.
+Fill=0ms confirms empty buffer.
+
+
+SUSPECTED ISSUE
+---------------
+The underruns occur during the TRANSITION periods:
+- Media start
+- Siri start/stop (media pause/resume)
+- Format changes (48kHz to 16kHz)
+
+During these transitions, buffer management may have issues:
+1. Old track stopped
+2. New track created
+3. Buffer cleared
+4. Pre-fill restarted
+5. But pre-fill not completing before playback starts?
+
+
+SUGGESTED FIX 1: Increase Pre-fill
+----------------------------------
+Current: 120ms pre-fill before playback
+Suggested: 200ms or 250ms pre-fill
+
+In DualStreamAudioManager.kt:
+val PRE_FILL_TARGET_MS = 250  // Increased from 120
+
+This gives more margin for data arrival jitter.
+
+
+SUGGESTED FIX 2: Dynamic Buffer Management
+-----------------------------------------
+Monitor buffer fill level and adjust:
+
+fun onBufferWrite() {
+    val fillPercent = buffer.fillLevel()
+
+    if (fillPercent < 20) {
+        // Buffer low - could pause playback briefly
+        log("[AUDIO_WARNING] Buffer low: $fillPercent%")
+    }
+
+    if (fillPercent > 90) {
+        // Buffer healthy - resume if paused
+    }
+}
+
+
+SUGGESTED FIX 3: Separate Underrun Investigation
+-----------------------------------------------
+Add detailed logging during underruns:
+
+when (underrun detected) {
+    log("[UNDERRUN] fill=$fillMs buffer=$bufferBytes")
+    log("[UNDERRUN] lastWrite=${elapsedSinceLastWrite}ms")
+    log("[UNDERRUN] writeRate=$writesPerSecond/s")
+}
+
+This will identify if issue is:
+- Data not arriving (write rate low)
+- Data arriving but not written (blocking issue)
+- Buffer too small (need larger buffer)
+
+
+USER IMPACT
+-----------
+With 800+ underruns in 5 minutes:
+- Audio has audible glitches every few seconds
+- User may notice "stuttering" or "skipping" in music
+- Quality significantly degraded
+
+
+PRIORITY: MEDIUM
+----------------
+Not blocking functionality but degrading user experience.
+Should be investigated after fixing critical Siri issues.
