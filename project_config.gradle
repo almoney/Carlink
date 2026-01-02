@@ -9,9 +9,9 @@ ext {
     // -----------------------------------------------------------------------------
     // PLAY STORE RELEASE CONFIGURATION (Update before each release)
     // -----------------------------------------------------------------------------
-    myApplicationId = "com.test.fudge"      // Package name (com.your.app)
+    myApplicationId = "com.test.choc"      // Package name (com.your.app)
     myApplicationName = "carlink"            // App display name
-    myVersionCode = 87                       // Play Store version code (increment for each release)
+    myVersionCode = 88                       // Play Store version code (increment for each release)
     myVersionName = "2.0.0"                  // User-visible version (semantic versioning)
 
     // -----------------------------------------------------------------------------
